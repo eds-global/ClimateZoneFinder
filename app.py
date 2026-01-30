@@ -150,12 +150,13 @@ st.markdown("""
     
     /* nbc Zone Images Styling */
     .climate-zone-header {
-        text-align: center;
+        text-align: left;
         font-size: 36px;
         font-weight: 350;
-        color: #dec45e;
+        color: #a85c42;
         margin: 40px 0 30px 0;
         letter-spacing: 2px;
+        text-family: sans-serif;
     }
     
     .nbc-images-container {
@@ -435,6 +436,7 @@ def amcharts_world_globe(df, lat_sel, lon_sel, location_name, country_name, clim
             border-radius: 5px;
             transition: all 0.2s;
             gap: 10px;
+            font-family: sans-serif;
         }}
         .legend-item:hover {{
             transform: translateX(5px);
@@ -692,6 +694,8 @@ def amcharts_india_map(df, lat_sel, lon_sel, location_name, state_name, climate_
             border-radius: 5px;
             transition: all 0.2s;
             gap: 10px;
+            font-family: sans-serif;
+
         }}
         .legend-item:hover {{
             transform: translateX(5px);
@@ -898,7 +902,7 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
         'CustomTitle',
         parent=styles['Heading1'],
         fontSize=28,
-        textColor=colors.HexColor('#02a0c5'),
+        textColor=colors.black,
         spaceAfter=12,
         alignment=TA_CENTER,
         fontName='Helvetica-Bold'
@@ -934,11 +938,12 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
     )
     
     # Title
-    story.append(Paragraph("CLIMATE ZONE FINDER REPORT", title_style))
+    story.append(Paragraph("Climate Analysis", title_style))
     story.append(Spacer(1, 0.2*inch))
 
     # Report Header
-    story.append(Paragraph("PROJECT INFORMATION", heading_style))
+    story.append(Paragraph("Project Information", heading_style))
+    
     
     # Table
     location_data = [
@@ -946,15 +951,15 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
         ['Location', location_name],
         ['State', state_name],
         ['Country', 'India'],
-        ['Latitude', f'{latitude:.4f}'],
-        ['Longitude', f'{longitude:.4f}'],
+        ['Latitude', f'{latitude:.2f}'],
+        ['Longitude', f'{longitude:.2f}'],
         ['Climate Zone', climate_zone]
     ]
     
     location_table = Table(location_data, colWidths=[2*inch, 3.5*inch])
     location_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#02a0c5')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 12),
@@ -963,24 +968,27 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')])
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ('BOX', (0,0), (-1,-1), 2, colors.grey)
     ]))
     
     story.append(location_table)
     story.append(Spacer(1, 0.3*inch))
     
     # Climate Zone Information
-    story.append(Paragraph("CLIMATE ZONE DESIGNATION", heading_style))
+    story.append(Paragraph("Climate Zone Designation", heading_style))
     
     zone_info_text = f"""
-    <b>Climate Zone:</b> {climate_zone}<br/>
     This location falls under the <b>{climate_zone}</b> climate classification as per the 
     National Building Code (NBC) of India. Understanding the climatic characteristics 
-    of this zone is essential for designing energy-efficient buildings.
+    of this zone is essential for designing energy-efficient buildings by following the Passive Design Strategies.
     """
     story.append(Paragraph(zone_info_text, body_style))
     story.append(Spacer(1, 0.3*inch))
     
+    story.append(Paragraph("Passive Design Strategies:", heading_style))
+
+
     # Strategy images and descriptions
     if zone_info and 'images' in zone_info:
         for i, (img_path, title, description) in enumerate(zip(
@@ -991,9 +999,9 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
             story.append(Paragraph(f"{title}", section_heading_style))
             
             try:
-                img = Image(img_path, width=4*inch, height=3*inch)
+                img = Image(img_path, width=3.5*inch, height=2.5*inch)
                 story.append(img)
-                story.append(Spacer(1, 0.15*inch))
+                story.append(Spacer(1, 0.10*inch))
             except:
                 story.append(Paragraph("[Image not available]", body_style))
                 story.append(Spacer(1, 0.1*inch))
@@ -1006,8 +1014,8 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
     
     # Footer information
     footer_text = f"""
-    <b>Report Generated:</b> {datetime.now().strftime('%B %d, %Y at %I:%M %p')}<br/>
-    <b>Classification Standard:</b> Energy Conservation Building Code (nbc) 2017<br/>
+    <b>Report Generated On:</b> {datetime.now().strftime('%B %d, %Y at %I:%M %p')}<br/>
+    <b>Classification Standard:</b> National Building Code (NBC)<br/>
     <br/>
     <i>This report provides climate-specific design strategies for sustainable and energy-efficient buildings. 
     For more information, visit the Climate Zone Finder dashboard.</i>
@@ -1026,8 +1034,17 @@ def display_climate_zone_images(climate_zone):
         zone_info = CLIMATE_ZONE_DATA[climate_zone]
         zone_color = get_nbc_zone_color(climate_zone)
         
-        st.markdown(f'<div class="climate-zone-header" style="color: {zone_color};">{climate_zone}</div>', unsafe_allow_html=True)
-        
+        st.markdown(
+            f'''
+            <div class="climate-zone-header">
+                Passive Design Strategies for 
+                <span style="color: {zone_color};">{climate_zone}</span> 
+                Climate Zone
+            </div>
+            ''',
+            unsafe_allow_html=True
+        )
+            
         # CSS for iamge styling
         st.markdown("""
             <style>
@@ -1035,7 +1052,7 @@ def display_climate_zone_images(climate_zone):
                 display: flex !important;
                 justify-content: center !important;
                 align-items: center !important;
-                min-height: 350px !important;
+                min-height: 300px !important;
                 background: #ffffff;
                 border-radius: 0px;
                 padding: 10px;
@@ -1043,7 +1060,7 @@ def display_climate_zone_images(climate_zone):
             }
             
             [data-testid="stImage"] img {
-                height: 330px !important;
+                height: 260px !important;
                 width: auto !important;
                 max-width: 100% !important;
                 object-fit: contain !important;
@@ -1091,12 +1108,12 @@ def display_climate_zone_images(climate_zone):
 left_col, right_col = st.columns([1, 2.5])
 
 with left_col:
-    st.markdown('<div class="label-text">Select Standard</div>', unsafe_allow_html=True)
-    standard_options = ["ASHRAE-2013", "NBC"]
-    select_standard = st.selectbox("Select Standard", standard_options, key="standard", label_visibility="collapsed", width=200)
+    st.markdown('<div class="label-text">Climate Classification Standard</div>', unsafe_allow_html=True)
+    standard_options = ["ASHRAE-169 (2013)", "NBC"]
+    select_standard = st.selectbox("Select Standard", standard_options, key="standard", label_visibility="collapsed", width=250)
 
     # ASHRAE Standard
-    if select_standard == "ASHRAE-2013":
+    if select_standard == "ASHRAE-169 (2013)":
         df = load_ashrae_data()
 
         st.markdown('<div class="section-title">Location Selection</div>', unsafe_allow_html=True)
@@ -1157,15 +1174,15 @@ with left_col:
         # </style>
         # """, unsafe_allow_html=True)
 
-        report_clicked = st.button("GENERATE REPORT", type="primary", width=200)
+        report_clicked = st.button("Generate Report", type="secondary", width=200)
         if not result.empty and pd.notna(result.iloc[0].get("EPW File", None)):
             epw_url = result.iloc[0]["EPW File"]
             if epw_url and str(epw_url).strip() != "" and str(epw_url) != "0":
-                st.button("DOWNLOAD EPW ", epw_url, type="primary", width=200)
+                st.button("Download EPW ", epw_url, type="secondary", width=200)
             else:
-                st.button("DOWNLOAD EPW", type="secondary", disabled=True, width=200)
+                st.button("Download EPW", type="secondary", disabled=True, width=200)
         else:
-            st.button("DOWNLOAD EPW", type="secondary", disabled=True, width=200)    
+            st.button("Download EPW", type="secondary", disabled=True, width=200)    
         if report_clicked and not result.empty:
             st.info("Report generation for ASHRAE is under development. Please check back soon.")
 
@@ -1209,15 +1226,15 @@ with left_col:
             st.markdown('<p style="font-size: 28px; font-weight: bold; color: #dc3545; margin: 10px 0;">-</p>',
                         unsafe_allow_html=True)
         
-        # report_clicked = st.button("GENERATE REPORT", type="primary", use_container_width=False)
+        # report_clicked = st.button("Generate Report", type="primary", use_container_width=False)
         if not result.empty and pd.notna(result.iloc[0].get("EPW File", None)):
             epw_url = result.iloc[0]["EPW File"]
             if epw_url and str(epw_url).strip() != "" and str(epw_url) != "0":
-                st.link_button("DOWNLOAD EPW", epw_url, type="secondary", use_container_width=False, width=200)
+                st.link_button("Download EPW", epw_url, type="secondary", use_container_width=False, width=200)
             else:
-                st.button("DOWNLOAD EPW", type="secondary", disabled=True, use_container_width=False, width=200)
+                st.button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
         else:
-            st.button("DOWNLOAD EPW", type="secondary", disabled=True, use_container_width=False, width=200)
+            st.button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
         
         # report_clicked and not result.empty:
         epw_file = result.iloc[0].get("EPW File", "Not Available")
@@ -1243,7 +1260,7 @@ with left_col:
             filename = f"Climate_Zone_Report_{selected_location}_{climate_zone}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             
             st.download_button(
-            label="GENERATE REPORT",
+            label="Generate Report",
             data=pdf_data,
             file_name=filename,
             mime="application/pdf",
@@ -1258,7 +1275,7 @@ with left_col:
 
 # Right Column - Map Display
 with right_col:
-    if select_standard == "ASHRAE-2013":
+    if select_standard == "ASHRAE-169 (2013)":
         if not result.empty:
             lat_selected = result.iloc[0]["Latitude"]
             lon_selected = result.iloc[0]["Longitude"]

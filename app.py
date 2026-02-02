@@ -36,7 +36,7 @@ with col_logo:
 
 with col_title:
     st.markdown(
-        '<h2 style="text-align: center; color: #a85c42; margin-top: 30px;">CLIMATE ZONE FINDER</h2>',
+        '<h2 style="text-align: center; color: #a85c42; margin-top: 35px;">CLIMATE ZONE FINDER</h2>',
         unsafe_allow_html=True
     )
 
@@ -64,8 +64,8 @@ st.markdown("""
     /* Expand main content to full width since sidebar is hidden */
     .main .block-container {
         max-width: 100% !important;
-        padding-left: 3rem !important;
-        padding-right: 3rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
     }
     
     /* Style the header columns container */
@@ -81,20 +81,22 @@ st.markdown("""
         display: flex;
         justify-content: flex-end;
         align-items: center;
-        height: 170%;
+        height: 150%;
     }
     
     div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button {
         background-color: #a85c42 !important;
         color: white !important;
         border: none !important;
-        border-radius: 5px !important;
         padding: 12px 50px !important;
-        font-size: 18px !important;
-        font-weight: 600 !important;
+        font-size: 22px !important;
+        font-weight: 500 !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
         margin-top: 20px !important;
+        height: 50px !important;
+        width: 170px ;
+        
     }
     
     div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover {
@@ -179,7 +181,7 @@ st.markdown("""
     
     /* Adjust selectbox width */
     .stSelectbox > div > div {
-        max-width: 100% !important;
+        max-width: 90% !important;
     }
     
     /* nbc Zone Images Styling */
@@ -913,6 +915,33 @@ def amcharts_india_map(df, lat_sel, lon_sel, location_name, state_name, climate_
 
     st.components.v1.html(html_code, height=730, scrolling=False)
 
+def add_page_header(canvas, doc):
+    """Add header with logo to each page"""
+    canvas.saveState()
+    
+    # Add logo to header
+    try:
+        logo_path = "images/EDSlogo.jpg"
+        # Draw logo in top-left corner
+        canvas.drawImage(logo_path, 0.5*inch, letter[1] - 1*inch, 
+                        width=1.2*inch, height=0.6*inch, 
+                        preserveAspectRatio=True, mask='auto')
+    except:
+        pass  # If logo not found, continue without it
+    
+    # Add title text in header
+    canvas.setFont('Helvetica-Bold', 16)
+    canvas.setFillColor(colors.HexColor('#a85c42'))
+    canvas.drawCentredString(letter[0]/2, letter[1] - 0.7*inch, "CLIMATE ZONE FINDER")
+    
+    # Add horizontal line below header
+    canvas.setStrokeColor(colors.grey)
+    canvas.setLineWidth(1)
+    canvas.line(0.5*inch, letter[1] - 1.1*inch, letter[0] - 0.5*inch, letter[1] - 1.1*inch)
+    
+    canvas.restoreState()
+
+
 def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, longitude, zone_info):
     """Generate a comprehensive PDF report for NBC climate zone"""
     
@@ -923,7 +952,7 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
         pagesize=letter,
         rightMargin=0.5*inch,
         leftMargin=0.5*inch,
-        topMargin=0.5*inch,
+        topMargin=1.3*inch,  # Increased to accommodate header
         bottomMargin=0.5*inch
     )
     
@@ -1057,7 +1086,7 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
     story.append(Paragraph(footer_text, body_style))
     
     # Build PDF
-    doc.build(story)
+    doc.build(story, onFirstPage=add_page_header, onLaterPages=add_page_header)
     pdf_buffer.seek(0)
     
     return pdf_buffer

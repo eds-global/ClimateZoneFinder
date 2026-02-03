@@ -1197,7 +1197,7 @@ with left_col:
         # </style>
         # """, unsafe_allow_html=True)
 
-        report_clicked = st.button("Generate Report", type="secondary", width=200)
+        report_clicked = st.link_button("Generate Report", type="secondary", width=200)
         if not result.empty and pd.notna(result.iloc[0].get("EPW File", None)):
             epw_url = result.iloc[0]["EPW File"]
             if epw_url and str(epw_url).strip() != "" and str(epw_url) != "0":
@@ -1255,9 +1255,9 @@ with left_col:
             if epw_url and str(epw_url).strip() != "" and str(epw_url) != "0":
                 st.link_button("Download EPW", epw_url, type="secondary", use_container_width=False, width=200)
             else:
-                st.button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
+                st.link_button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
         else:
-            st.button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
+            st.link_button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
         
         # report_clicked and not result.empty:
         epw_file = result.iloc[0].get("EPW File", "Not Available")

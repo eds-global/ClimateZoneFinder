@@ -1203,9 +1203,9 @@ with left_col:
             if epw_url and str(epw_url).strip() != "" and str(epw_url) != "0":
                 st.link_button("Download EPW ", epw_url, type="secondary", width=200)
             else:
-                st.button("Download EPW", type="secondary", disabled=True, width=200)
+                st.link_button("Download EPW", type="secondary", disabled=True, width=200)
         else:
-            st.button("Download EPW", type="secondary", disabled=True, width=200)    
+            st.link_button("Download EPW", type="secondary", disabled=True, width=200)    
         if report_clicked and not result.empty:
             st.info("Report generation for ASHRAE is under development. Please check back soon.")
 

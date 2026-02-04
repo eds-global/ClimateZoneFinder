@@ -1288,7 +1288,7 @@ with left_col:
             file_name=filename,
             mime="application/pdf",
             type="secondary",
-            use_container_width=False
+            width=200
             )
 
             

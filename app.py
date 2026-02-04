@@ -1253,11 +1253,11 @@ with left_col:
         if not result.empty and pd.notna(result.iloc[0].get("EPW File", None)):
             epw_url = result.iloc[0]["EPW File"]
             if epw_url and str(epw_url).strip() != "" and str(epw_url) != "0":
-                st.link_button("Download EPW", epw_url, type="secondary", use_container_width=False, width=200)
+                st.link_button("Download EPW", epw_url, type="secondary", width=200)
             else:
-                st.link_button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
+                st.link_button("Download EPW", type="secondary", disabled=True, width=200)
         else:
-            st.link_button("Download EPW", type="secondary", disabled=True, use_container_width=False, width=200)
+            st.link_button("Download EPW", type="secondary", disabled=True, width=200)
         
         # report_clicked and not result.empty:
         epw_file = result.iloc[0].get("EPW File", "Not Available")
@@ -1287,7 +1287,7 @@ with left_col:
             data=pdf_data,
             file_name=filename,
             mime="application/pdf",
-            type="primary",
+            type="secondary",
             use_container_width=False
             )
 

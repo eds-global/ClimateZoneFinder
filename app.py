@@ -979,7 +979,10 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
         ['Climate Zone', climate_zone]
     ]
     
-    location_table = Table(location_data, colWidths=[2*inch, 3.5*inch])
+    story.append(Spacer(1, 0.1*inch))
+
+
+    location_table = Table(location_data, colWidths=[3*inch, 3*inch], hAlign='LEFT')
     location_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
@@ -996,7 +999,7 @@ def generate_nbc_pdf_report(location_name, state_name, climate_zone, latitude, l
     ]))
     
     story.append(location_table)
-    story.append(Spacer(1, 0.3*inch))
+    story.append(Spacer(1, 0.1*inch))
     
     # Climate Zone Information
     story.append(Paragraph("Climate Zone Designation", heading_style))

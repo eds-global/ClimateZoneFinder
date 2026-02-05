@@ -1,6 +1,9 @@
+reamlit==1.51.0
 matplotlib
 pandas
-Pillow
+pillow
 reportlab
-Shapely
-streamlit
+shapely
+altair==4.2.2
+rich==13.9.4
+openpyxl

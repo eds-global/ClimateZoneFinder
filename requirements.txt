@@ -3,4 +3,4 @@ pandas
 Pillow
 reportlab
 Shapely
-streamli
+streamlit

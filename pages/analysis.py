@@ -310,6 +310,34 @@ try:
     
     with col1:
         st.success("✅ EPW parsed successfully")
+        # Time range (hour of use) slider for diurnal/peak analysis
+        st.markdown('<div class="label-text">Time range (hour of use)</div>', unsafe_allow_html=True)
+        # default to typical daytime hours
+        hour_range = st.slider(
+            "Select hours (start - end)",
+            min_value=0,
+            max_value=23,
+            value=(8, 18),
+            step=1,
+            key="hour_range",
+            help="Select the building occupied or peak-use hours to analyse diurnal patterns and peak usage",
+        )
+        
+        # Day selection
+        st.markdown('<div class="label-text">Select a day</div>', unsafe_allow_html=True)
+        
+        # Get min and max dates from the data
+        min_date = df["datetime"].dt.date.min()
+        max_date = df["datetime"].dt.date.max()
+        
+        selected_date = st.date_input(
+            "Pick a date",
+            value=min_date,
+            min_value=min_date,
+            max_value=max_date,
+            key="selected_day",
+            label_visibility="collapsed",
+        )
 except Exception as e:
     with col1:
         st.error(f"❌ Failed to parse EPW: {e}")
@@ -428,6 +456,48 @@ with col2:
 
     selected_label = st.session_state.selected_variable
     selected_var = variable_map[selected_label]
+    # --- Diurnal analysis (hourly averages) ---
+    hourly = df.groupby("hour").agg({
+        "dry_bulb_temperature": "mean",
+        "relative_humidity": "mean",
+    }).reset_index()
+
+    # read selected hour range from session state (set by slider in col1)
+    start_hour, end_hour = st.session_state.get("hour_range", (8, 18))
+    hourly["in_use"] = hourly["hour"].between(start_hour, end_hour)
+
+    # choose numeric column to plot for diurnal profile
+    val_col = selected_var
+
+    # small diurnal chart highlighting selected hours
+    try:
+        color_map = {True: "#a85c42", False: "#d6d6d6"}
+        fig_diurnal = px.bar(
+            hourly,
+            x="hour",
+            y=val_col,
+            color="in_use",
+            color_discrete_map=color_map,
+            title=f"Diurnal profile – {selected_label} (hourly avg)",
+            labels={val_col: selected_label, "hour": "Hour of day"},
+        )
+        fig_diurnal.update_layout(xaxis=dict(dtick=1), showlegend=False, height=320)
+        st.plotly_chart(fig_diurnal, use_container_width=True)
+
+        # Compute peak within selected hours
+        sel_hours = hourly[hourly["in_use"]]
+        if not sel_hours.empty:
+            peak_idx = sel_hours[val_col].idxmax()
+            peak_row = sel_hours.loc[peak_idx]
+            peak_hour = int(peak_row["hour"])
+            peak_val = float(peak_row[val_col])
+            unit = "°C" if val_col == "dry_bulb_temperature" else "%"
+            st.markdown(f"**Peak hour (within selected range):** {peak_hour}:00 — {peak_val:.2f} {unit}")
+        else:
+            st.markdown("**No data in the selected hour range**")
+    except Exception:
+        # if plotting fails for non-numeric variables, skip diurnal chart
+        pass
         # Add some spacing after buttons
         
         # Legend toggle for yearly chart
@@ -535,6 +605,84 @@ with col2:
             )
 
         st.plotly_chart(fig_yearly, use_container_width=True)
+        
+        # --- Cards showing min/max dry bulb for selected day + time range ---
+        selected_date = st.session_state.get("selected_day")
+        start_hour, end_hour = st.session_state.get("hour_range", (8, 18))
+        
+        # Filter data: selected date + hour range
+        filtered_df = df[
+            (df["datetime"].dt.date == selected_date) &
+            (df["hour"].between(start_hour, end_hour))
+        ]
+        
+        if not filtered_df.empty:
+            temp_min = filtered_df["dry_bulb_temperature"].min()
+            temp_max = filtered_df["dry_bulb_temperature"].max()
+            temp_avg = filtered_df["dry_bulb_temperature"].mean()
+            
+            # Display date and time range summary
+            date_str = selected_date.strftime("%A, %B %d, %Y") if selected_date else "N/A"
+            st.markdown(f"**Period: {date_str} from {start_hour:02d}:00 to {end_hour:02d}:00**")
+            
+            # Create three cards (columns) with min, max, avg
+            card_col1, card_col2, card_col3 = st.columns(3)
+            
+            with card_col1:
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 20px;
+                        border-radius: 10px;
+                        text-align: center;
+                        color: white;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    ">
+                        <div style="font-size: 14px; opacity: 0.9;">Min Temp</div>
+                        <div style="font-size: 32px; font-weight: bold; margin: 10px 0;">{temp_min:.2f}°C</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            
+            with card_col2:
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                        padding: 20px;
+                        border-radius: 10px;
+                        text-align: center;
+                        color: white;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    ">
+                        <div style="font-size: 14px; opacity: 0.9;">Max Temp</div>
+                        <div style="font-size: 32px; font-weight: bold; margin: 10px 0;">{temp_max:.2f}°C</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            
+            with card_col3:
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                        padding: 20px;
+                        border-radius: 10px;
+                        text-align: center;
+                        color: white;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    ">
+                        <div style="font-size: 14px; opacity: 0.9;">Avg Temp</div>
+                        <div style="font-size: 32px; font-weight: bold; margin: 10px 0;">{temp_avg:.2f}°C</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info(f"No data available for {selected_date} between {start_hour:02d}:00 and {end_hour:02d}:00")
     elif selected_var == "sunpath":
         st.write("Sun Path analysis is not yet implemented.")
 

@@ -1013,6 +1013,209 @@ with col_right:
             )
             
             st.plotly_chart(fig_yearly, use_container_width=True)
+            
+            # Calculate humidity metrics
+            comfort_rh_lower = 40  # Comfort zone lower bound
+            comfort_rh_upper = 60  # Comfort zone upper bound
+            
+            # Get min/max RH values
+            rh_min = df["relative_humidity"].min()
+            rh_max = df["relative_humidity"].max()
+            rh_avg = df["relative_humidity"].mean()
+            
+            # Find date/time of peak RH
+            max_rh_idx = df["relative_humidity"].idxmax()
+            max_rh_row = df.loc[max_rh_idx]
+            max_rh_date_str = max_rh_row["datetime"].strftime("%b %d")
+            max_rh_hour = int(max_rh_row["hour"])
+            
+            # Comfort hours (40-60% RH)
+            comfort_rh_hours = len(df[(df["relative_humidity"] >= comfort_rh_lower) & (df["relative_humidity"] <= comfort_rh_upper)])
+            comfort_rh_percent = (comfort_rh_hours / len(df)) * 100
+            
+            # High humidity hours (> 60% RH)
+            high_humidity_hrs = len(df[df["relative_humidity"] > 60])
+            
+            # Condensation risk hours (> 75% RH sustained)
+            condensation_risk_hrs = len(df[df["relative_humidity"] > 75])
+            
+            # Low humidity hours (< 30% RH)
+            low_humidity_hrs = len(df[df["relative_humidity"] < 30])
+            
+            # Mold risk hours (> 60% RH sustained for extended periods)
+            mold_risk_hrs = len(df[df["relative_humidity"] > 60])
+            
+            # HVAC RH control (percentage within comfort band)
+            hvac_rh_control = comfort_rh_percent
+            
+            # Overhumidification hours (> 70% RH)
+            overhumidification_hrs = len(df[df["relative_humidity"] > 70])
+            
+            # Humidity metrics cards - Row 1
+            rh_col1, rh_col2, rh_col3, rh_col4, rh_col5 = st.columns(5)
+            
+            with rh_col1:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #f59e0b;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;">Comfort 40-60%</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{comfort_rh_percent:.0f} %</div>
+                        <div style="font-size: 11px; color: #718096;">Occupied RH Hrs</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col2:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #ef4444;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.5px;">Peak RH (Occupied)</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{rh_max:.1f} %</div>
+                        <div style="font-size: 11px; color: #718096;">All year</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col3:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #8b5cf6;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #8b5cf6; text-transform: uppercase; letter-spacing: 0.5px;">High Humidity Hrs</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{high_humidity_hrs}</div>
+                        <div style="font-size: 11px; color: #718096;">&gt; 60% RH</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col4:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #06b6d4;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.5px;">Condensation Risk Hrs</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{condensation_risk_hrs}</div>
+                        <div style="font-size: 11px; color: #718096;">Surface Temp &lt; Dew Point</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col5:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #3b82f6;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;">Avg RH</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{rh_avg:.1f} %</div>
+                        <div style="font-size: 11px; color: #718096;"></div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            # Row 2 - Additional metrics
+            rh_col6, rh_col7, rh_col8, rh_col9, rh_col10 = st.columns(5)
+            
+            with rh_col6:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #f59e0b;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;">Low Humidity Hrs</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{low_humidity_hrs}</div>
+                        <div style="font-size: 11px; color: #718096;">&lt; 30% RH</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col7:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #ef4444;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.5px;">Mold Risk Hrs</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{mold_risk_hrs}</div>
+                        <div style="font-size: 11px; color: #718096;">&gt; 60% RH Sustained</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col8:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #06b6d4;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.5px;">HVAC RH Control</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{hvac_rh_control:.0f} %</div>
+                        <div style="font-size: 11px; color: #718096;">Outside RH vs Inside RH</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col9:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #3b82f6;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;">Overhumidification Hrs</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{overhumidification_hrs}</div>
+                        <div style="font-size: 11px; color: #718096;">System Failure Indicator</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with rh_col10:
+                st.markdown(f"""
+                    <div style="
+                        background: white;
+                        padding: 16px;
+                        border-radius: 8px;
+                        border-left: 4px solid #0891b2;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                        text-align: center;
+                    ">
+                        <div style="font-size: 11px; font-weight: 700; color: #0891b2; text-transform: uppercase; letter-spacing: 0.5px;">Min RH</div>
+                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{rh_min:.1f} %</div>
+                        <div style="font-size: 11px; color: #718096;"></div>
+                    </div>
+                """, unsafe_allow_html=True)
         
         else:
             st.info("Sun Path analysis is not yet implemented.")
@@ -1909,8 +2112,161 @@ with col_right:
             )
             
             st.plotly_chart(fig_comfort, use_container_width=True)
+        
+        elif selected_parameter == "Humidity":
+            import plotly.graph_objects as go
+            
+            # Calculate day of year for selected month range for greying
+            start_month_num = st.session_state.start_month_idx + 1
+            end_month_num = st.session_state.end_month_idx + 1
+            start_doy = pd.to_datetime(f"2024-{start_month_num}-01").dayofyear
+            if end_month_num == 12:
+                end_doy = 366
+            else:
+                end_doy = pd.to_datetime(f"2024-{end_month_num+1}-01").dayofyear - 1
+            
+            # Create humidity comfort analysis visualization
+            fig_humidity_comfort = go.Figure()
+            
+            # Define comfort zones for humidity
+            comfort_upper = 60  # Upper comfort limit
+            comfort_lower = 40  # Lower comfort limit
+            
+            # GREYED OUT: Before selected range
+            if start_doy > 1:
+                before_data = daily_stats[daily_stats["doy"] < start_doy]
+                fig_humidity_comfort.add_trace(go.Scatter(
+                    x=before_data["datetime_display"],
+                    y=before_data["rh_max"],
+                    fill=None,
+                    mode="lines",
+                    line_color="rgba(100, 100, 100, 0)",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ))
+                fig_humidity_comfort.add_trace(go.Scatter(
+                    x=before_data["datetime_display"],
+                    y=before_data["rh_min"],
+                    fill="tonexty",
+                    mode="lines",
+                    line_color="rgba(100, 100, 100, 0)",
+                    fillcolor="rgba(180, 180, 180, 0.15)",
+                    name="Unselected Period",
+                    showlegend=True,
+                    hoverinfo="skip",
+                ))
+                fig_humidity_comfort.add_trace(go.Scatter(
+                    x=before_data["datetime_display"],
+                    y=before_data["rh_avg"],
+                    mode="lines",
+                    line=dict(color="rgba(150, 150, 150, 0.4)", width=1, dash="dot"),
+                    showlegend=False,
+                    hoverinfo="skip",
+                ))
+            
+            # ACTIVE: Selected range
+            active_range = daily_stats[(daily_stats["doy"] >= start_doy) & (daily_stats["doy"] <= end_doy)]
+            
+            # Add comfort band (40-60% RH) for active range
+            fig_humidity_comfort.add_trace(go.Scatter(
+                x=active_range["datetime_display"],
+                y=[comfort_upper] * len(active_range),
+                fill=None,
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_humidity_comfort.add_trace(go.Scatter(
+                x=active_range["datetime_display"],
+                y=[comfort_lower] * len(active_range),
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                name="Comfort Band (40-60%)",
+                fillcolor="rgba(76, 175, 80, 0.4)",
+                hoverinfo="skip",
+            ))
+            
+            # Add humidity data for active range
+            fig_humidity_comfort.add_trace(go.Scatter(
+                x=active_range["datetime_display"],
+                y=active_range["rh_max"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(0, 150, 255, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_humidity_comfort.add_trace(go.Scatter(
+                x=active_range["datetime_display"],
+                y=active_range["rh_min"],
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(0, 150, 255, 0)",
+                name="Daily RH Range",
+                fillcolor="rgba(0, 150, 255, 0.3)",
+                customdata=active_range["rh_max"],
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}%<br>Max: %{customdata:.2f}%<extra></extra>",
+            ))
+            
+            # Add average for active range
+            fig_humidity_comfort.add_trace(go.Scatter(
+                x=active_range["datetime_display"],
+                y=active_range["rh_avg"],
+                mode="lines",
+                name="Average RH",
+                line=dict(color="#00a8ff", width=2),
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.2f}%<extra></extra>",
+            ))
+            
+            # GREYED OUT: After selected range
+            if end_doy < 365:
+                after_data = daily_stats[daily_stats["doy"] > end_doy]
+                if not after_data.empty:
+                    fig_humidity_comfort.add_trace(go.Scatter(
+                        x=after_data["datetime_display"],
+                        y=after_data["rh_max"],
+                        fill=None,
+                        mode="lines",
+                        line_color="rgba(100, 100, 100, 0)",
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ))
+                    fig_humidity_comfort.add_trace(go.Scatter(
+                        x=after_data["datetime_display"],
+                        y=after_data["rh_min"],
+                        fill="tonexty",
+                        mode="lines",
+                        line_color="rgba(100, 100, 100, 0)",
+                        fillcolor="rgba(180, 180, 180, 0.15)",
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ))
+                    fig_humidity_comfort.add_trace(go.Scatter(
+                        x=after_data["datetime_display"],
+                        y=after_data["rh_avg"],
+                        mode="lines",
+                        line=dict(color="rgba(150, 150, 150, 0.4)", width=1, dash="dot"),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ))
+            
+            fig_humidity_comfort.update_layout(
+                title="Humidity Comfort Analysis – Optimal Range (40-60%)",
+                xaxis_title="Day",
+                yaxis_title="Relative Humidity (%)",
+                hovermode="x unified",
+                showlegend=True,
+                template="plotly_white",
+                height=450,
+            )
+            
+            st.plotly_chart(fig_humidity_comfort, use_container_width=True)
         else:
-            st.info("Comfort Analysis is only available for Temperature parameter.")
+            st.info("Comfort Analysis is available for Temperature and Humidity parameters.")
     
     # === TAB 5: ENERGY METRICS ===
     elif st.session_state.active_tab == "Energy Metrics":
@@ -1982,8 +2338,85 @@ with col_right:
                 )
                 
                 st.plotly_chart(fig_energy, use_container_width=True)
+        
+        elif selected_parameter == "Humidity":
+            # Calculate humidity-related metrics
+            filtered_df = df[
+                (df["datetime"].dt.date >= start_date) &
+                (df["datetime"].dt.date <= end_date) &
+                (df["hour"].between(start_hour, end_hour))
+            ]
+            
+            if not filtered_df.empty:
+                # Calculate humidity metrics for full year
+                high_humidity_annual = len(df[df["relative_humidity"] > 60])
+                condensation_risk_annual = len(df[df["relative_humidity"] > 75])
+                mold_risk_annual = len(df[df["relative_humidity"] > 60])
+                low_humidity_annual = len(df[df["relative_humidity"] < 30])
+                
+                # Filtered period metrics
+                high_humidity_filtered = len(filtered_df[filtered_df["relative_humidity"] > 60])
+                condensation_risk_filtered = len(filtered_df[filtered_df["relative_humidity"] > 75])
+                
+                # Monthly breakdown
+                monthly_high_rh = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] > 60]))
+                monthly_condensation = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] > 75]))
+                monthly_mold_risk = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] > 60]))
+                monthly_low_rh = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] < 30]))
+                
+                month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                
+                # Display metrics in cards
+                st.markdown("#### Humidity Performance Indicators")
+                
+                humidity_col1, humidity_col2, humidity_col3, humidity_col4 = st.columns(4)
+                
+                with humidity_col1:
+                    st.metric("High RH Hrs (Annual)", f"{high_humidity_annual:.0f}", ">60% RH")
+                
+                with humidity_col2:
+                    st.metric("Condensation Risk (Annual)", f"{condensation_risk_annual:.0f}", ">75% RH")
+                
+                with humidity_col3:
+                    st.metric("High RH Hrs (Period)", f"{high_humidity_filtered:.0f}", ">60% RH")
+                
+                with humidity_col4:
+                    st.metric("Condensation (Period)", f"{condensation_risk_filtered:.0f}", ">75% RH")
+                
+                # Monthly breakdown chart
+                import plotly.graph_objects as go
+                from plotly.subplots import make_subplots
+                
+                fig_humidity_energy = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                fig_humidity_energy.add_trace(
+                    go.Bar(x=month_names, y=monthly_high_rh.values, name="High RH (>60%)", marker_color="#0099ff"),
+                    secondary_y=False,
+                )
+                
+                fig_humidity_energy.add_trace(
+                    go.Bar(x=month_names, y=monthly_condensation.values, name="Condensation Risk (>75%)", marker_color="#FF6B6B"),
+                    secondary_y=False,
+                )
+                
+                fig_humidity_energy.add_trace(
+                    go.Scatter(x=month_names, y=monthly_low_rh.values, name="Low RH (<30%)", 
+                              line=dict(color="#FFA500", width=2), mode="lines+markers"),
+                    secondary_y=False,
+                )
+                
+                fig_humidity_energy.update_layout(
+                    title="Monthly Humidity Risk Distribution",
+                    xaxis_title="Month",
+                    yaxis_title="Hours",
+                    hovermode="x unified",
+                    height=400,
+                    barmode="group",
+                )
+                
+                st.plotly_chart(fig_humidity_energy, use_container_width=True)
         else:
-            st.info("Energy Metrics is only available for Temperature parameter.")
+            st.info("Energy Metrics is available for Temperature and Humidity parameters.")
 
 # Adding extra space at the bottom
 st.markdown("<br><br>", unsafe_allow_html=True)

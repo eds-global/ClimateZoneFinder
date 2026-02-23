@@ -453,21 +453,25 @@ with col_right:
     """, unsafe_allow_html=True)
     
     # Create tab buttons
-    tabs_col1, tabs_col2, tabs_col3, tabs_col4 = st.columns(4, gap="small")
+    tabs_col1, tabs_col2, tabs_col3, tabs_col4, tabs_col5 = st.columns(5, gap="small")
     
     with tabs_col1:
         if st.button("Annual Trend", key="tab_annual", use_container_width=True):
             st.session_state.active_tab = "Annual Trend"
     
     with tabs_col2:
+        if st.button("Monthly Trend", key="tab_monthly", use_container_width=True):
+            st.session_state.active_tab = "Monthly Trend"
+    
+    with tabs_col3:
         if st.button("Diurnal Profile", key="tab_diurnal", use_container_width=True):
             st.session_state.active_tab = "Diurnal Profile"
     
-    with tabs_col3:
+    with tabs_col4:
         if st.button("Comfort Analysis", key="tab_comfort", use_container_width=True):
             st.session_state.active_tab = "Comfort Analysis"
     
-    with tabs_col4:
+    with tabs_col5:
         if st.button("Energy Metrics", key="tab_energy", use_container_width=True):
             st.session_state.active_tab = "Energy Metrics"
     
@@ -594,7 +598,8 @@ with col_right:
                 line_color="rgba(255, 0, 0, 0)",
                 name="Dry bulb temperature Range",
                 fillcolor="rgba(255, 173, 173, 0.4)",
-                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<extra></extra>",
+                customdata=daily_stats["temp_max"],
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<br>Max: %{customdata:.2f}°C<extra></extra>",
             ))
             
             # Add average line
@@ -936,7 +941,208 @@ with col_right:
         else:
             st.info("Sun Path analysis is not yet implemented.")
 
-    # === TAB 2: DIURNAL PROFILE ===
+    # === TAB 2: MONTHLY TREND ===
+    elif st.session_state.active_tab == "Monthly Trend":
+        if selected_parameter == "Temperature":
+            import plotly.graph_objects as go
+            
+            # Calculate monthly statistics
+            monthly_stats = df.groupby("month").agg({
+                "dry_bulb_temperature": ["min", "max", "mean"],
+                "relative_humidity": ["min", "max", "mean"],
+            }).reset_index()
+            
+            monthly_stats.columns = ["month", "temp_min", "temp_max", "temp_avg", "rh_min", "rh_max", "rh_avg"]
+            month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            monthly_stats["month_name"] = monthly_stats["month"].apply(lambda x: month_names[x-1])
+            
+            fig_monthly = go.Figure()
+            
+            # Add temperature range (min/max)
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=monthly_stats["temp_max"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(255, 0, 0, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=monthly_stats["temp_min"],
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(255, 0, 0, 0)",
+                name="Monthly Temperature Range",
+                fillcolor="rgba(255, 173, 173, 0.4)",
+                customdata=monthly_stats["temp_max"],
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<br>Max: %{customdata:.2f}°C<extra></extra>",
+            ))
+            
+            # Add average line
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=monthly_stats["temp_avg"],
+                mode="lines+markers",
+                name="Monthly Average Temperature",
+                line=dict(color="#d32f2f", width=2),
+                marker=dict(size=8),
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.2f}°C<extra></extra>",
+            ))
+            
+            fig_monthly.update_layout(
+                title="Monthly Temperature Trend",
+                xaxis_title="Month",
+                yaxis_title="Temperature (°C)",
+                hovermode="x unified",
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                ),
+                height=450,
+                template="plotly_white",
+                margin=dict(b=80),
+            )
+            
+            st.plotly_chart(fig_monthly, use_container_width=True)
+            
+            # Display monthly KPI metrics
+            st.markdown("#### Monthly Temperature Summary")
+            
+            # Create a dataframe for monthly metrics
+            kpi_data = monthly_stats[["month_name", "temp_min", "temp_max", "temp_avg"]].copy()
+            kpi_data.columns = ["Month", "Min (°C)", "Max (°C)", "Avg (°C)"]
+            
+            # Display as a nice table
+            st.dataframe(
+                kpi_data,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Min (°C)": st.column_config.NumberColumn(format="%.2f"),
+                    "Max (°C)": st.column_config.NumberColumn(format="%.2f"),
+                    "Avg (°C)": st.column_config.NumberColumn(format="%.2f"),
+                }
+            )
+            
+        elif selected_parameter == "Humidity":
+            import plotly.graph_objects as go
+            
+            # Calculate monthly humidity statistics
+            monthly_stats = df.groupby("month").agg({
+                "relative_humidity": ["min", "max", "mean"],
+            }).reset_index()
+            
+            monthly_stats.columns = ["month", "rh_min", "rh_max", "rh_avg"]
+            month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            monthly_stats["month_name"] = monthly_stats["month"].apply(lambda x: month_names[x-1])
+            
+            fig_monthly = go.Figure()
+            
+            # Add humidity comfort band
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=[65] * len(monthly_stats),
+                fill=None,
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=[30] * len(monthly_stats),
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                name="Humidity comfort band (30-65%)",
+                fillcolor="rgba(128, 128, 128, 0.2)",
+                hoverinfo="skip",
+            ))
+            
+            # Add humidity range (min/max)
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=monthly_stats["rh_max"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(0, 0, 255, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=monthly_stats["rh_min"],
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(0, 0, 255, 0)",
+                name="Monthly Humidity Range",
+                fillcolor="rgba(0, 150, 255, 0.3)",
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.1f}%<extra></extra>",
+            ))
+            
+            # Add average line
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_stats["month_name"],
+                y=monthly_stats["rh_avg"],
+                mode="lines+markers",
+                name="Monthly Average Humidity",
+                line=dict(color="#00a8ff", width=2),
+                marker=dict(size=8),
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.1f}%<extra></extra>",
+            ))
+            
+            fig_monthly.update_layout(
+                title="Monthly Relative Humidity Trend",
+                xaxis_title="Month",
+                yaxis_title="Relative Humidity (%)",
+                hovermode="x unified",
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                ),
+                height=450,
+                template="plotly_white",
+                margin=dict(b=80),
+            )
+            
+            st.plotly_chart(fig_monthly, use_container_width=True)
+            
+            # Display monthly KPI metrics
+            st.markdown("#### Monthly Humidity Summary")
+            
+            # Create a dataframe for monthly metrics
+            kpi_data = monthly_stats[["month_name", "rh_min", "rh_max", "rh_avg"]].copy()
+            kpi_data.columns = ["Month", "Min (%)", "Max (%)", "Avg (%)"]
+            
+            # Display as a nice table
+            st.dataframe(
+                kpi_data,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Min (%)": st.column_config.NumberColumn(format="%.1f"),
+                    "Max (%)": st.column_config.NumberColumn(format="%.1f"),
+                    "Avg (%)": st.column_config.NumberColumn(format="%.1f"),
+                }
+            )
+        
+        else:
+            st.info("Monthly trend analysis is not yet implemented for Sun Path.")
+
+    # === TAB 3: DIURNAL PROFILE ===
     elif st.session_state.active_tab == "Diurnal Profile":
         import plotly.graph_objects as go
         
@@ -983,7 +1189,8 @@ with col_right:
                     line_color="rgba(255, 0, 0, 0)",
                     name="Daily Range",
                     fillcolor="rgba(255, 173, 173, 0.3)",
-                    hovertemplate="<b>Hour %{x}:00</b><br>Min: %{y:.2f}°C<extra></extra>",
+                    customdata=avg_hourly["temp_max"],
+                    hovertemplate="<b>Hour %{x}:00</b><br>Min: %{y:.2f}°C<br>Max: %{customdata:.2f}°C<extra></extra>",
                 ))
                 
                 # Add average
@@ -1105,7 +1312,7 @@ with col_right:
         else:
             st.info("Sun Path analysis is not yet implemented.")
     
-    # === TAB 3: COMFORT ANALYSIS ===
+    # === TAB 4: COMFORT ANALYSIS ===
     elif st.session_state.active_tab == "Comfort Analysis":
         if selected_parameter == "Temperature":
             import plotly.graph_objects as go
@@ -1154,7 +1361,8 @@ with col_right:
                 line_color="rgba(255, 0, 0, 0)",
                 name="Daily Temperature Range",
                 fillcolor="rgba(255, 173, 173, 0.3)",
-                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<extra></extra>",
+                customdata=daily_stats["temp_max"],
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<br>Max: %{customdata:.2f}°C<extra></extra>",
             ))
             
             # Add average
@@ -1181,7 +1389,7 @@ with col_right:
         else:
             st.info("Comfort Analysis is only available for Temperature parameter.")
     
-    # === TAB 4: ENERGY METRICS ===
+    # === TAB 5: ENERGY METRICS ===
     elif st.session_state.active_tab == "Energy Metrics":
         if selected_parameter == "Temperature":
             # Calculate energy metrics

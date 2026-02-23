@@ -7,7 +7,7 @@ import io
 import re
 
 st.set_page_config(
-    page_title="Enterprise Climate Analytics Dashboard",
+    page_title="Climate Analytics Dashboard",
     page_icon="🌍",
     layout="wide"
 )
@@ -27,31 +27,74 @@ def get_base64_image(image_path):
 st.markdown("""
     <style>
     .header-container {
-        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-        padding: 20px 30px;
+        background: linear-gradient(135deg, #1a3a52 0%, #2c5aa0 100%);
+        padding: 0px;
         border-radius: 0;
-        margin: -1rem -1rem 1rem -1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-top: 50px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        border-bottom: 4px solid #ffffff;
+
+           /* 👈 pushes it below Streamlit toolbar */
+        left: 0;
+        right: 0;
+        z-index: 999;
+        width: 100%;
+        box-sizing: border-box;
     }
+    style>
+    /* Hide top toolbar */
+    header[data-testid="stHeader"] {
+        display: none;
+    }
+
+    /* Hide hamburger menu */
+    #MainMenu {
+        visibility: hidden;
+    }
+
+    /* Hide footer */
+    footer {
+        visibility: hidden;
+    }
+
+    /* Remove top padding since header is gone */
+    .block-container {
+        padding-top: 1rem;
+    }
+
+    /* Optional: Remove deploy button */
+    div[data-testid="stToolbar"] {
+        display: none;
+    }
+    /* Adjust body spacing to avoid overlap */
+    .main > div {
+        padding-top: 180px;   /* Increase if needed */
+    }
+
     .header-content {
         display: flex;
         align-items: center;
-        gap: 15px;
+        gap: 20px;
     }
+
     .header-icon {
-        font-size: 32px;
+        font-size: 48px;
+        display: inline-block;
     }
+
     .header-title {
-        color: white;
-        font-size: 28px;
-        font-weight: 700;
+        color: #ffffff;
+        font-size: 32px;
+        font-weight: 800;
         margin: 0;
+        letter-spacing: 0.5px;
     }
     </style>
+
     <div class="header-container">
         <div class="header-content">
             <div class="header-icon">🌍</div>
-            <div class="header-title">Enterprise Climate Analytics Dashboard</div>
+            <div class="header-title">Climate Analytics Dashboard</div>
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -505,7 +548,7 @@ with col_right:
                 fill="tonexty",
                 mode="lines",
                 line_color="rgba(128, 128, 128, 0)",
-                name="ASHRAE adaptive comfort (90%)",
+                name="ASHRAE adaptive comfort (80%)",
                 fillcolor="rgba(128, 128, 128, 0.2)",
                 hoverinfo="skip",
             ))

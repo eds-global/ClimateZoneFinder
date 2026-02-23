@@ -296,7 +296,7 @@ with col_left:
     
     # Upload EPW File Section
     st.markdown('<div class="control-section-header">📤 Upload EPW File</div>', unsafe_allow_html=True)
-    st.markdown('<div class="upload-zone">Limit 200MB per file · EPW</div>', unsafe_allow_html=True)
+    # st.markdown('<div class="upload-zone">Limit 200MB per file · EPW</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader("", type=["epw"], label_visibility="collapsed")
     
     # Parameter Selection

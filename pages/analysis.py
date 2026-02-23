@@ -56,44 +56,9 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# === NAVIGATION TABS ===
-st.markdown("""
-    <style>
-    .nav-tabs {
-        display: flex;
-        gap: 0;
-        background-color: #f8f9fa;
-        padding: 0;
-        margin: -1rem -1rem 1.5rem -1rem;
-        border-bottom: 2px solid #e9ecef;
-    }
-    .nav-tab {
-        padding: 12px 24px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 600;
-        color: #495057;
-        background-color: #f8f9fa;
-        border: none;
-        border-bottom: 3px solid transparent;
-        transition: all 0.3s ease;
-    }
-    .nav-tab:hover {
-        background-color: #e9ecef;
-    }
-    .nav-tab.active {
-        color: #2c3e50;
-        border-bottom-color: #3498db;
-        background-color: white;
-    }
-    </style>
-    <div class="nav-tabs">
-        <div class="nav-tab active">Annual Trend</div>
-        <div class="nav-tab">Diurnal Profile</div>
-        <div class="nav-tab">Comfort Analysis</div>
-        <div class="nav-tab">Energy Metrics</div>
-    </div>
-""", unsafe_allow_html=True)
+# === INITIALIZE SESSION STATE FOR TABS ===
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Annual Trend"
 
 st.markdown("""
     <style>
@@ -293,11 +258,11 @@ with col_left:
     
     # Parameter Selection
     st.markdown('<div class="control-section-header">⚙️ Parameter</div>', unsafe_allow_html=True)
-    graph_type = st.selectbox(
+    selected_parameter = st.selectbox(
         "Select parameter",
-        ["Dry Bulb Temperature", "Humidity"],
+        ["Temperature", "Humidity", "Sun Path"],
         label_visibility="collapsed",
-        key="graph_selector",
+        key="parameter_selector",
     )
 
 if uploaded is None:
@@ -411,7 +376,64 @@ def calculate_ashrae_comfort(df: pd.DataFrame) -> tuple:
 ashrae_80_lower, ashrae_80_upper, ashrae_90_lower, ashrae_90_upper = calculate_ashrae_comfort(df)
 
 with col_right:
-    # Convert selected months to date range
+    # === INTERACTIVE TABS AT TOP ===
+    st.markdown("""
+        <style>
+        .tab-container {
+            display: flex;
+            gap: 0;
+            background-color: #f8f9fa;
+            padding: 0;
+            margin: -1rem -1rem 1.5rem -1rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .tab-button {
+            padding: 12px 24px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+            background-color: #f8f9fa;
+            border: none;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        .tab-button:hover {
+            background-color: #e9ecef;
+        }
+        .tab-button.active {
+            color: #2c3e50;
+            border-bottom-color: #3498db;
+            background-color: white;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Create tab buttons
+    tabs_col1, tabs_col2, tabs_col3, tabs_col4 = st.columns(4, gap="small")
+    
+    with tabs_col1:
+        if st.button("Annual Trend", key="tab_annual", use_container_width=True):
+            st.session_state.active_tab = "Annual Trend"
+    
+    with tabs_col2:
+        if st.button("Diurnal Profile", key="tab_diurnal", use_container_width=True):
+            st.session_state.active_tab = "Diurnal Profile"
+    
+    with tabs_col3:
+        if st.button("Comfort Analysis", key="tab_comfort", use_container_width=True):
+            st.session_state.active_tab = "Comfort Analysis"
+    
+    with tabs_col4:
+        if st.button("Energy Metrics", key="tab_energy", use_container_width=True):
+            st.session_state.active_tab = "Energy Metrics"
+    
+    # Add visual styling to show active tab
+    st.markdown(f"""
+        <script>
+        var active_tab = '{st.session_state.active_tab}';
+        </script>
+    """, unsafe_allow_html=True)
     # Get the actual year from the data
     year = df["datetime"].dt.year.iloc[0] if not df.empty else 2024
     
@@ -459,25 +481,15 @@ with col_right:
     # Merge comfort data with daily stats
     daily_stats = daily_stats.merge(comfort_df, on="doy", how="left")
 
-    selected_label = graph_type
-    variable_map = {
-        "Dry Bulb Temperature": "dry_bulb_temperature",
-        "Humidity": "relative_humidity",
-    }
-    selected_var = variable_map.get(selected_label, "dry_bulb_temperature")
-        
-    if selected_var == "dry_bulb_temperature":
-        import plotly.graph_objects as go
+    # === TAB 1: ANNUAL TREND ===
+    if st.session_state.active_tab == "Annual Trend":
+        if selected_parameter == "Temperature":
+            import plotly.graph_objects as go
             
-        # # === Annual Temperature Trend Chart ===
-        # st.markdown("""
-        #     <h3 style="margin: 20px 0 16px 0; color: #2c3e50;">Annual Temperature Trend</h3>
-        # """, unsafe_allow_html=True)
-        
-        fig_yearly = go.Figure()
+            fig_yearly = go.Figure()
             
             # Add ASHRAE 80% band
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["comfort_80_upper"],
                 fill=None,
@@ -487,7 +499,7 @@ with col_right:
                 hoverinfo="skip",
             ))
             
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["comfort_80_lower"],
                 fill="tonexty",
@@ -499,7 +511,7 @@ with col_right:
             ))
             
             # Add ASHRAE 90% band
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["comfort_90_upper"],
                 fill=None,
@@ -509,7 +521,7 @@ with col_right:
                 hoverinfo="skip",
             ))
             
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["comfort_90_lower"],
                 fill="tonexty",
@@ -521,7 +533,7 @@ with col_right:
             ))
             
             # Add temperature range (min/max)
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["temp_max"],
                 fill=None,
@@ -531,7 +543,7 @@ with col_right:
                 hoverinfo="skip",
             ))
             
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["temp_min"],
                 fill="tonexty",
@@ -543,7 +555,7 @@ with col_right:
             ))
             
             # Add average line
-        fig_yearly.add_trace(go.Scatter(
+            fig_yearly.add_trace(go.Scatter(
                 x=daily_stats["datetime_display"],
                 y=daily_stats["temp_avg"],
                 mode="lines",
@@ -552,7 +564,7 @@ with col_right:
                 hovertemplate="<b>%{x}</b><br>Avg: %{y:.2f}°C<extra></extra>",
             ))
             
-        fig_yearly.update_layout(
+            fig_yearly.update_layout(
                 title="Annual Dry Bulb Temperature Trend",
                 xaxis_title=None,
                 yaxis_title="Temperature (°C)",
@@ -571,324 +583,633 @@ with col_right:
                 margin=dict(b=80),
             )
 
-        st.plotly_chart(fig_yearly, use_container_width=True)
+            st.plotly_chart(fig_yearly, use_container_width=True)
+            
+            # Get filtered data for period
+            filtered_df = df[
+                (df["datetime"].dt.date >= start_date) &
+                (df["datetime"].dt.date <= end_date) &
+                (df["hour"].between(start_hour, end_hour))
+            ]
+            
+            if not filtered_df.empty:
+                # Get min/max values and their corresponding rows with datetime/hour info
+                min_idx = filtered_df["dry_bulb_temperature"].idxmin()
+                max_idx = filtered_df["dry_bulb_temperature"].idxmax()
+                
+                min_row = filtered_df.loc[min_idx]
+                max_row = filtered_df.loc[max_idx]
+                
+                temp_min = min_row["dry_bulb_temperature"]
+                temp_max = max_row["dry_bulb_temperature"]
+                temp_avg = filtered_df["dry_bulb_temperature"].mean()
+                diurnal_range = temp_max - temp_min
+                
+                # Extract date and hour information for min/max
+                min_date_str = min_row["datetime"].strftime("%b %d")
+                min_hour = int(min_row["hour"])
+                
+                max_date_str = max_row["datetime"].strftime("%b %d")
+                max_hour = int(max_row["hour"])
+                
+                # Calculate additional metrics using full year data
+                # HDD18 (Heating Degree Days at 18°C base)
+                hdd18 = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum()
+                
+                # CDD24 (Cooling Degree Days at 24°C base)
+                cdd24 = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum()
+                
+                # Comfort metrics (using full year data for comfort bands)
+                def get_comfort_band_range(temps):
+                    """Get comfort band as ±3.5°C from mean"""
+                    mean_temp = temps.mean()
+                    return mean_temp - 3.5, mean_temp + 3.5
+                
+                comfort_lower, comfort_upper = get_comfort_band_range(df["dry_bulb_temperature"])
+                comfort_hours = len(df[(df["dry_bulb_temperature"] >= comfort_lower) & (df["dry_bulb_temperature"] <= comfort_upper)])
+                comfort_80_percent = (comfort_hours / len(df)) * 100
+                
+                # 1% Cooling (99th percentile)
+                cooling_1pct = df["dry_bulb_temperature"].quantile(0.99)
+                
+                # Overheat hours (hours above 28°C threshold)
+                overheat_hrs = len(df[df["dry_bulb_temperature"] > 28])
+                
+                # Cold hours (hours below 12°C threshold)
+                cold_hrs = len(df[df["dry_bulb_temperature"] < 12])
+                
+                # Temperature metrics cards - Row 1
+                kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5 = st.columns(5)
+                
+                with kpi_col1:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #f59e0b;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;">Min Temp</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{temp_min:.2f} °C</div>
+                            <div style="font-size: 11px; color: #718096;">{min_date_str} · {min_hour:02d}:00</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col2:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #ef4444;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.5px;">Max Temp</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{temp_max:.2f} °C</div>
+                            <div style="font-size: 11px; color: #718096;">{max_date_str} · {max_hour:02d}:00</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col3:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #8b5cf6;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #8b5cf6; text-transform: uppercase; letter-spacing: 0.5px;">Avg Temp</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{temp_avg:.2f} °C</div>
+                            <div style="font-size: 11px; color: #718096;">All year average</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col4:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #3b82f6;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;">Diurnal Range</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{diurnal_range:.2f} °C</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col5:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #06b6d4;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.5px;">1% Cooling</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{cooling_1pct:.2f} °C</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                # Row 2 - Additional metrics
+                kpi_col6, kpi_col7, kpi_col8, kpi_col9, kpi_col10 = st.columns(5)
+                
+                with kpi_col6:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #dc2626;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 0.5px;">HDD18</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{hdd18:.0f}</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col7:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #0891b2;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #0891b2; text-transform: uppercase; letter-spacing: 0.5px;">CDD24</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{cdd24:.0f}</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col8:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #06b6d4;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.5px;">Comfort 80%</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{comfort_80_percent:.0f} %</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col9:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #8b5cf6;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #8b5cf6; text-transform: uppercase; letter-spacing: 0.5px;">Overheat Hrs</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{overheat_hrs}</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with kpi_col10:
+                    st.markdown(f"""
+                        <div style="
+                            background: white;
+                            padding: 16px;
+                            border-radius: 8px;
+                            border-left: 4px solid #3b82f6;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            text-align: center;
+                        ">
+                            <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;">Cold Hrs</div>
+                            <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{cold_hrs}</div>
+                            <div style="font-size: 11px; color: #718096;"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info(f"No data available between {start_hour:02d}:00 and {end_hour:02d}:00 in the selected date range.")
         
-        # === Climate Metrics Cards ===
-        # st.markdown("""
-        #     <h3 style="margin: 24px 0 16px 0; color: #2c3e50;">Climate Metrics</h3>
-        # """, unsafe_allow_html=True)
+        elif selected_parameter == "Humidity":
+            import plotly.graph_objects as go
+            
+            # Define humidity comfort bands (typical comfort range 30-65%)
+            humidity_comfort_lower = 30
+            humidity_comfort_upper = 65
+            
+            fig_yearly = go.Figure()
+            
+            # Add humidity comfort band
+            fig_yearly.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=[humidity_comfort_upper] * len(daily_stats),
+                fill=None,
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_yearly.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=[humidity_comfort_lower] * len(daily_stats),
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                name="Humidity comfort band",
+                fillcolor="rgba(128, 128, 128, 0.2)",
+                hoverinfo="skip",
+            ))
+            
+            # Add relative humidity range (min/max)
+            fig_yearly.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["rh_max"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(0, 0, 255, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_yearly.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["rh_min"],
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(0, 0, 255, 0)",
+                name="Relative humidity Range",
+                fillcolor="rgba(0, 150, 255, 0.3)",
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.1f}%<extra></extra>",
+            ))
+            
+            # Add average line
+            fig_yearly.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["rh_avg"],
+                mode="lines",
+                name="Average Relative humidity",
+                line=dict(color="#00a8ff", width=2),
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.1f}%<extra></extra>",
+            ))
+            
+            fig_yearly.update_layout(
+                title="Annual Profile – Relative Humidity",
+                xaxis_title="Day",
+                yaxis_title="Relative Humidity (%)",
+                hovermode="x unified",
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                ),
+                xaxis_rangeslider_visible=False,
+                height=450,
+                template="plotly_white",
+                margin=dict(b=80),
+            )
+            
+            st.plotly_chart(fig_yearly, use_container_width=True)
         
-        # Get filtered data for period
-        filtered_df = df[
-            (df["datetime"].dt.date >= start_date) &
-            (df["datetime"].dt.date <= end_date) &
-            (df["hour"].between(start_hour, end_hour))
-        ]
-        
-        if not filtered_df.empty:
-            # Get min/max values and their corresponding rows with datetime/hour info
-            min_idx = filtered_df["dry_bulb_temperature"].idxmin()
-            max_idx = filtered_df["dry_bulb_temperature"].idxmax()
-            
-            min_row = filtered_df.loc[min_idx]
-            max_row = filtered_df.loc[max_idx]
-            
-            temp_min = min_row["dry_bulb_temperature"]
-            temp_max = max_row["dry_bulb_temperature"]
-            temp_avg = filtered_df["dry_bulb_temperature"].mean()
-            diurnal_range = temp_max - temp_min
-            
-            # Extract date and hour information for min/max
-            min_date_str = min_row["datetime"].strftime("%b %d")
-            min_hour = int(min_row["hour"])
-            
-            max_date_str = max_row["datetime"].strftime("%b %d")
-            max_hour = int(max_row["hour"])
-            
-            # Calculate additional metrics using full year data
-            # HDD18 (Heating Degree Days at 18°C base)
-            hdd18 = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum()
-            
-            # CDD24 (Cooling Degree Days at 24°C base)
-            cdd24 = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum()
-            
-            # Comfort metrics (using full year data for comfort bands)
-            def get_comfort_band_range(temps):
-                """Get comfort band as ±3.5°C from mean"""
-                mean_temp = temps.mean()
-                return mean_temp - 3.5, mean_temp + 3.5
-            
-            comfort_lower, comfort_upper = get_comfort_band_range(df["dry_bulb_temperature"])
-            comfort_hours = len(df[(df["dry_bulb_temperature"] >= comfort_lower) & (df["dry_bulb_temperature"] <= comfort_upper)])
-            comfort_80_percent = (comfort_hours / len(df)) * 100
-            
-            # 1% Cooling (99th percentile)
-            cooling_1pct = df["dry_bulb_temperature"].quantile(0.99)
-            
-            # Overheat hours (hours above 28°C threshold)
-            overheat_hrs = len(df[df["dry_bulb_temperature"] > 28])
-            
-            # Cold hours (hours below 12°C threshold)
-            cold_hrs = len(df[df["dry_bulb_temperature"] < 12])
-            
-            # Temperature metrics cards - Row 1
-            # st.markdown("""
-            #     <h3 style="margin: 24px 0 16px 0; color: #2c3e50;">Climate Metrics</h3>
-            # """, unsafe_allow_html=True)
-            
-            kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5 = st.columns(5)
-            
-            with kpi_col1:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #f59e0b;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;">Min Temp</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{temp_min:.2f} °C</div>
-                        <div style="font-size: 11px; color: #718096;">{min_date_str} · {min_hour:02d}:00</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col2:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #ef4444;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.5px;">Max Temp</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{temp_max:.2f} °C</div>
-                        <div style="font-size: 11px; color: #718096;">{max_date_str} · {max_hour:02d}:00</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col3:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #8b5cf6;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #8b5cf6; text-transform: uppercase; letter-spacing: 0.5px;">Avg Temp</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{temp_avg:.2f} °C</div>
-                        <div style="font-size: 11px; color: #718096;">All year average</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col4:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #3b82f6;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;">Diurnal Range</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{diurnal_range:.2f} °C</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col5:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #06b6d4;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.5px;">1% Cooling</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{cooling_1pct:.2f} °C</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            # Row 2 - Additional metrics
-            kpi_col6, kpi_col7, kpi_col8, kpi_col9, kpi_col10 = st.columns(5)
-            
-            with kpi_col6:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #dc2626;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 0.5px;">HDD18</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{hdd18:.0f}</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col7:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #0891b2;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #0891b2; text-transform: uppercase; letter-spacing: 0.5px;">CDD24</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{cdd24:.0f}</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col8:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #06b6d4;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.5px;">Comfort 80%</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{comfort_80_percent:.0f} %</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col9:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #8b5cf6;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #8b5cf6; text-transform: uppercase; letter-spacing: 0.5px;">Overheat Hrs</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{overheat_hrs}</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with kpi_col10:
-                st.markdown(f"""
-                    <div style="
-                        background: white;
-                        padding: 16px;
-                        border-radius: 8px;
-                        border-left: 4px solid #3b82f6;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-                        text-align: center;
-                    ">
-                        <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;">Cold Hrs</div>
-                        <div style="font-size: 26px; font-weight: 700; color: #2c3e50; margin: 8px 0;">{cold_hrs}</div>
-                        <div style="font-size: 11px; color: #718096;"></div>
-                    </div>
-                """, unsafe_allow_html=True)
         else:
-            st.info(f"No data available between {start_hour:02d}:00 and {end_hour:02d}:00 in the selected date range.")
-    
-    elif selected_var == "relative_humidity":
+            st.info("Sun Path analysis is not yet implemented.")
+
+    # === TAB 2: DIURNAL PROFILE ===
+    elif st.session_state.active_tab == "Diurnal Profile":
         import plotly.graph_objects as go
         
-        # Define humidity comfort bands (typical comfort range 30-65%)
-        humidity_comfort_lower = 30
-        humidity_comfort_upper = 65
+        if selected_parameter == "Temperature":
+            # Create hourly averages for each month
+            hourly_stats = df.groupby(["month", "hour"]).agg({
+                "dry_bulb_temperature": ["min", "max", "mean"],
+            }).reset_index()
+            
+            hourly_stats.columns = ["month", "hour", "temp_min", "temp_max", "temp_avg"]
+            hourly_stats["month_name"] = hourly_stats["month"].apply(lambda x: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                                                                                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][x-1])
+            
+            fig_diurnal = go.Figure()
+            
+            # Get selected month or show average for selected period
+            selected_months = list(range(st.session_state.start_month_idx + 1, st.session_state.end_month_idx + 2))
+            filtered_hourly = hourly_stats[hourly_stats["month"].isin(selected_months)]
+            
+            if not filtered_hourly.empty:
+                # Get average across selected months
+                avg_hourly = filtered_hourly.groupby("hour").agg({
+                    "temp_min": "min",
+                    "temp_max": "max",
+                    "temp_avg": "mean"
+                }).reset_index()
+                
+                # Add temperature range
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly["hour"],
+                    y=avg_hourly["temp_max"],
+                    fill=None,
+                    mode="lines",
+                    line_color="rgba(255, 0, 0, 0)",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ))
+                
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly["hour"],
+                    y=avg_hourly["temp_min"],
+                    fill="tonexty",
+                    mode="lines",
+                    line_color="rgba(255, 0, 0, 0)",
+                    name="Daily Range",
+                    fillcolor="rgba(255, 173, 173, 0.3)",
+                    hovertemplate="<b>Hour %{x}:00</b><br>Min: %{y:.2f}°C<extra></extra>",
+                ))
+                
+                # Add average
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly["hour"],
+                    y=avg_hourly["temp_avg"],
+                    mode="lines+markers",
+                    name="Average Temperature",
+                    line=dict(color="#d32f2f", width=2),
+                    marker=dict(size=6),
+                    hovertemplate="<b>Hour %{x}:00</b><br>Avg: %{y:.2f}°C<extra></extra>",
+                ))
+                
+                fig_diurnal.update_layout(
+                    title="Diurnal Temperature Profile",
+                    xaxis_title="Hour of Day",
+                    yaxis_title="Temperature (°C)",
+                    hovermode="x unified",
+                    showlegend=True,
+                    template="plotly_white",
+                    height=450,
+                )
+                
+                st.plotly_chart(fig_diurnal, use_container_width=True)
+            else:
+                st.info("No data available for the selected period.")
         
-        fig_yearly = go.Figure()
+        elif selected_parameter == "Humidity":
+            # Create hourly humidity averages for each month
+            hourly_humidity = df.groupby(["month", "hour"]).agg({
+                "relative_humidity": ["min", "max", "mean"],
+            }).reset_index()
+            
+            hourly_humidity.columns = ["month", "hour", "rh_min", "rh_max", "rh_avg"]
+            
+            fig_diurnal = go.Figure()
+            
+            # Get selected month or show average for selected period
+            selected_months = list(range(st.session_state.start_month_idx + 1, st.session_state.end_month_idx + 2))
+            filtered_hourly_rh = hourly_humidity[hourly_humidity["month"].isin(selected_months)]
+            
+            if not filtered_hourly_rh.empty:
+                # Get average across selected months
+                avg_hourly_rh = filtered_hourly_rh.groupby("hour").agg({
+                    "rh_min": "min",
+                    "rh_max": "max",
+                    "rh_avg": "mean"
+                }).reset_index()
+                
+                # Add humidity comfort band
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly_rh["hour"],
+                    y=[65] * len(avg_hourly_rh),
+                    fill=None,
+                    mode="lines",
+                    line_color="rgba(128, 128, 128, 0)",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ))
+                
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly_rh["hour"],
+                    y=[30] * len(avg_hourly_rh),
+                    fill="tonexty",
+                    mode="lines",
+                    line_color="rgba(128, 128, 128, 0)",
+                    name="Comfort band (30-65%)",
+                    fillcolor="rgba(128, 128, 128, 0.2)",
+                    hoverinfo="skip",
+                ))
+                
+                # Add humidity range
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly_rh["hour"],
+                    y=avg_hourly_rh["rh_max"],
+                    fill=None,
+                    mode="lines",
+                    line_color="rgba(0, 0, 255, 0)",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ))
+                
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly_rh["hour"],
+                    y=avg_hourly_rh["rh_min"],
+                    fill="tonexty",
+                    mode="lines",
+                    line_color="rgba(0, 0, 255, 0)",
+                    name="Humidity Range",
+                    fillcolor="rgba(0, 150, 255, 0.3)",
+                    hovertemplate="<b>Hour %{x}:00</b><br>Min: %{y:.1f}%<extra></extra>",
+                ))
+                
+                # Add average
+                fig_diurnal.add_trace(go.Scatter(
+                    x=avg_hourly_rh["hour"],
+                    y=avg_hourly_rh["rh_avg"],
+                    mode="lines+markers",
+                    name="Average Humidity",
+                    line=dict(color="#00a8ff", width=2),
+                    marker=dict(size=6),
+                    hovertemplate="<b>Hour %{x}:00</b><br>Avg: %{y:.1f}%<extra></extra>",
+                ))
+                
+                fig_diurnal.update_layout(
+                    title="Diurnal Humidity Profile",
+                    xaxis_title="Hour of Day",
+                    yaxis_title="Relative Humidity (%)",
+                    hovermode="x unified",
+                    showlegend=True,
+                    template="plotly_white",
+                    height=450,
+                )
+                
+                st.plotly_chart(fig_diurnal, use_container_width=True)
+            else:
+                st.info("No data available for the selected period.")
         
-        # Add humidity comfort band
-        fig_yearly.add_trace(go.Scatter(
-            x=daily_stats["datetime_display"],
-            y=[humidity_comfort_upper] * len(daily_stats),
-            fill=None,
-            mode="lines",
-            line_color="rgba(128, 128, 128, 0)",
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-        
-        fig_yearly.add_trace(go.Scatter(
-            x=daily_stats["datetime_display"],
-            y=[humidity_comfort_lower] * len(daily_stats),
-            fill="tonexty",
-            mode="lines",
-            line_color="rgba(128, 128, 128, 0)",
-            name="Humidity comfort band",
-            fillcolor="rgba(128, 128, 128, 0.2)",
-            hoverinfo="skip",
-        ))
-        
-        # Add relative humidity range (min/max)
-        fig_yearly.add_trace(go.Scatter(
-            x=daily_stats["datetime_display"],
-            y=daily_stats["rh_max"],
-            fill=None,
-            mode="lines",
-            line_color="rgba(0, 0, 255, 0)",
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-        
-        fig_yearly.add_trace(go.Scatter(
-            x=daily_stats["datetime_display"],
-            y=daily_stats["rh_min"],
-            fill="tonexty",
-            mode="lines",
-            line_color="rgba(0, 0, 255, 0)",
-            name="Relative humidity Range",
-            fillcolor="rgba(0, 150, 255, 0.3)",
-            hovertemplate="<b>%{x}</b><br>Min: %{y:.1f}%<extra></extra>",
-        ))
-        
-        # Add average line
-        fig_yearly.add_trace(go.Scatter(
-            x=daily_stats["datetime_display"],
-            y=daily_stats["rh_avg"],
-            mode="lines",
-            name="Average Relative humidity",
-            line=dict(color="#00a8ff", width=2),
-            hovertemplate="<b>%{x}</b><br>Avg: %{y:.1f}%<extra></extra>",
-        ))
-        
-        fig_yearly.update_layout(
-            title="Annual Profile – Relative Humidity",
-            xaxis_title="Day",
-            yaxis_title="Relative Humidity (%)",
-            hovermode="x unified",
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            xaxis_rangeslider_visible=False,
-            height=450,
-            template="plotly_white",
-            margin=dict(b=80),
-        )
-        
-        st.plotly_chart(fig_yearly, use_container_width=True)
+        else:
+            st.info("Sun Path analysis is not yet implemented.")
     
-    else:
-        st.write("Sun Path analysis is not yet implemented.")
+    # === TAB 3: COMFORT ANALYSIS ===
+    elif st.session_state.active_tab == "Comfort Analysis":
+        if selected_parameter == "Temperature":
+            import plotly.graph_objects as go
+            
+            # Create comfort analysis visualization
+            fig_comfort = go.Figure()
+            
+            # Add comfort bands
+            fig_comfort.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["comfort_90_upper"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_comfort.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["comfort_90_lower"],
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(128, 128, 128, 0)",
+                name="ASHRAE 90% acceptability",
+                fillcolor="rgba(76, 175, 80, 0.4)",
+                hoverinfo="skip",
+            ))
+            
+            # Add temperature data
+            fig_comfort.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["temp_max"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(255, 0, 0, 0)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            
+            fig_comfort.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["temp_min"],
+                fill="tonexty",
+                mode="lines",
+                line_color="rgba(255, 0, 0, 0)",
+                name="Daily Temperature Range",
+                fillcolor="rgba(255, 173, 173, 0.3)",
+                hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<extra></extra>",
+            ))
+            
+            # Add average
+            fig_comfort.add_trace(go.Scatter(
+                x=daily_stats["datetime_display"],
+                y=daily_stats["temp_avg"],
+                mode="lines",
+                name="Average Temperature",
+                line=dict(color="#d32f2f", width=2),
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.2f}°C<extra></extra>",
+            ))
+            
+            fig_comfort.update_layout(
+                title="Comfort Analysis – ASHRAE Adaptive Comfort",
+                xaxis_title="Day",
+                yaxis_title="Temperature (°C)",
+                hovermode="x unified",
+                showlegend=True,
+                template="plotly_white",
+                height=450,
+            )
+            
+            st.plotly_chart(fig_comfort, use_container_width=True)
+        else:
+            st.info("Comfort Analysis is only available for Temperature parameter.")
+    
+    # === TAB 4: ENERGY METRICS ===
+    elif st.session_state.active_tab == "Energy Metrics":
+        if selected_parameter == "Temperature":
+            # Calculate energy metrics
+            filtered_df = df[
+                (df["datetime"].dt.date >= start_date) &
+                (df["datetime"].dt.date <= end_date) &
+                (df["hour"].between(start_hour, end_hour))
+            ]
+            
+            if not filtered_df.empty:
+                # HDD18 (Heating Degree Days at 18°C base)
+                hdd18 = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum()
+                
+                # CDD24 (Cooling Degree Days at 24°C base)
+                cdd24 = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum()
+                
+                # Additional energy metrics
+                hdd18_filtered = (18 - filtered_df["dry_bulb_temperature"]).clip(lower=0).sum()
+                cdd24_filtered = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum()
+                
+                # Degree days by month
+                monthly_hdd = df.groupby("month").apply(lambda x: (18 - x["dry_bulb_temperature"]).clip(lower=0).sum())
+                monthly_cdd = df.groupby("month").apply(lambda x: (x["dry_bulb_temperature"] - 24).clip(lower=0).sum())
+                
+                month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                
+                # Display metrics in cards
+                st.markdown("#### Energy Performance Indicators")
+                
+                energy_col1, energy_col2, energy_col3, energy_col4 = st.columns(4)
+                
+                with energy_col1:
+                    st.metric("HDD18 (Annual)", f"{hdd18:.0f}", "Heating Degree-Days")
+                
+                with energy_col2:
+                    st.metric("CDD24 (Annual)", f"{cdd24:.0f}", "Cooling Degree-Days")
+                
+                with energy_col3:
+                    st.metric("HDD18 (Period)", f"{hdd18_filtered:.0f}", "Heating Degree-Days")
+                
+                with energy_col4:
+                    st.metric("CDD24 (Period)", f"{cdd24_filtered:.0f}", "Cooling Degree-Days")
+                
+                # Monthly breakdown chart
+                import plotly.graph_objects as go
+                from plotly.subplots import make_subplots
+                
+                fig_energy = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                fig_energy.add_trace(
+                    go.Bar(x=month_names, y=monthly_hdd.values, name="HDD18", marker_color="#2196F3"),
+                    secondary_y=False,
+                )
+                
+                fig_energy.add_trace(
+                    go.Bar(x=month_names, y=monthly_cdd.values, name="CDD24", marker_color="#FF9800"),
+                    secondary_y=False,
+                )
+                
+                fig_energy.update_layout(
+                    title="Monthly Degree-Days Distribution",
+                    xaxis_title="Month",
+                    yaxis_title="Degree-Days",
+                    hovermode="x unified",
+                    height=400,
+                    barmode="group",
+                )
+                
+                st.plotly_chart(fig_energy, use_container_width=True)
+        else:
+            st.info("Energy Metrics is only available for Temperature parameter.")
 
 # Adding extra space at the bottom
 st.markdown("<br><br>", unsafe_allow_html=True)

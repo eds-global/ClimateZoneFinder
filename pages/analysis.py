@@ -8,9 +8,33 @@ import re
 
 st.set_page_config(
     page_title="Climate Analytics Dashboard",
-    page_icon="🌍",
+    # page_icon="🌍",
     layout="wide"
 )
+
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
+
+logo_base64 = get_base64_image("images/EDSlogo.jpg")
+
+# STEP 1: Create header using st.columns for proper layout
+col_logo, col_title, col_home = st.columns([1, 4, 1])
+
+with col_logo:
+    st.markdown(
+        f'<img src="data:image/png;base64,{logo_base64}" style="height: 80px; margin-top: 45px;">',
+        unsafe_allow_html=True
+    )
+
+with col_title:
+    st.markdown(
+        '<h2 style="text-align: center; color: #a85c42; margin-top: 45px;">Climate Analytics Dashboard</h2>',
+        unsafe_allow_html=True
+    )
+
+with col_home:
+    pass
 
 def get_base64_image(image_path):
     try:
@@ -23,81 +47,105 @@ def get_base64_image(image_path):
         except:
             return ""
 
-# === HEADER ===
 st.markdown("""
     <style>
-    .header-container {
-        background: linear-gradient(135deg, #1a3a52 0%, #2c5aa0 100%);
-        padding: 0px;
-        border-radius: 0;
-        margin-top: 50px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        border-bottom: 4px solid #ffffff;
+    
+    /* Style the header columns container */
+    div[data-testid="stHorizontalBlock"]:first-of-type {
+        border-bottom: 1px solid #e6e6e6;
+        padding-bottom: 20px;
+        margin-bottom: 0px;
+        background-color: white;
+    }
+    
 
-           /* 👈 pushes it below Streamlit toolbar */
-        left: 0;
-        right: 0;
-        z-index: 999;
-        width: 100%;
-        box-sizing: border-box;
+    
+    /* Logo hover effect */
+    div[data-testid="stHorizontalBlock"]:first-of-type img:hover {
+        transform: scale(1.05);
+        opacity: 0.85;
+        transition: all 0.3s ease;
     }
-    style>
-    /* Hide top toolbar */
-    header[data-testid="stHeader"] {
-        display: none;
-    }
+    
 
-    /* Hide hamburger menu */
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    /* Hide footer */
-    footer {
-        visibility: hidden;
-    }
-
-    /* Remove top padding since header is gone */
-    .block-container {
-        padding-top: 1rem;
-    }
-
-    /* Optional: Remove deploy button */
-    div[data-testid="stToolbar"] {
-        display: none;
-    }
-    /* Adjust body spacing to avoid overlap */
-    .main > div {
-        padding-top: 180px;   /* Increase if needed */
-    }
-
-    .header-content {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-    }
-
-    .header-icon {
-        font-size: 48px;
-        display: inline-block;
-    }
-
-    .header-title {
-        color: #ffffff;
-        font-size: 32px;
-        font-weight: 800;
-        margin: 0;
-        letter-spacing: 0.5px;
-    }
     </style>
-
-    <div class="header-container">
-        <div class="header-content">
-            <div class="header-icon">🌍</div>
-            <div class="header-title">Climate Analytics Dashboard</div>
-        </div>
-    </div>
 """, unsafe_allow_html=True)
+
+# === HEADER ===
+# st.markdown("""
+#     <style>
+#     .header-container {
+#         background: linear-gradient(135deg, #1a3a52 0%, #2c5aa0 100%);
+#         padding: 0px;
+#         border-radius: 0;
+#         margin-top: 50px;
+#         box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+#         border-bottom: 4px solid #ffffff;
+
+#            /* 👈 pushes it below Streamlit toolbar */
+#         left: 0;
+#         right: 0;
+#         z-index: 999;
+#         width: 100%;
+#         box-sizing: border-box;
+#     }
+#     style>
+#     /* Hide top toolbar */
+#     header[data-testid="stHeader"] {
+#         display: none;
+#     }
+
+#     /* Hide hamburger menu */
+#     #MainMenu {
+#         visibility: hidden;
+#     }
+
+#     /* Hide footer */
+#     footer {
+#         visibility: hidden;
+#     }
+
+#     /* Remove top padding since header is gone */
+#     .block-container {
+#         padding-top: 1rem;
+#     }
+
+#     /* Optional: Remove deploy button */
+#     div[data-testid="stToolbar"] {
+#         display: none;
+#     }
+#     /* Adjust body spacing to avoid overlap */
+#     .main > div {
+#         padding-top: 180px;   /* Increase if needed */
+#     }
+
+#     .header-content {
+#         display: flex;
+#         align-items: center;
+#         gap: 20px;
+#     }
+
+#     .header-icon {
+#         font-size: 48px;
+#         display: inline-block;
+#     }
+
+#     .header-title {
+#         color: #ffffff;
+#         font-size: 32px;
+#         font-weight: 800;
+#         margin: 0;
+#         letter-spacing: 0.5px;
+#     }
+#     </style>
+
+#     <div class="header-container">
+#         <div class="header-content">
+#             <div class="header-icon">🌍</div>
+#             <div class="header-title">Climate Analytics Dashboard</div>
+#         </div>
+#     </div>
+# """, unsafe_allow_html=True)
 
 # === INITIALIZE SESSION STATE FOR TABS ===
 if "active_tab" not in st.session_state:
@@ -127,7 +175,7 @@ st.markdown("""
     
     
     .control-section-header {
-        font-size: 13px;
+        font-size: 15px;
         font-weight: 700;
         color: #2c3e50;
         text-transform: uppercase;
@@ -137,6 +185,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 8px;
+        width: 200px;
     }
     
     .control-section-header:first-child {
@@ -725,23 +774,26 @@ with col_left:
     # st.markdown('<div class="control-panel">', unsafe_allow_html=True)
     
     # Upload EPW File Section
-    st.markdown('<div class="control-section-header">📤 Upload EPW File</div>', unsafe_allow_html=True)
+    # st.markdown('<div class="control-section-header">📤 Upload EPW File</div>', unsafe_allow_html=True)
     # st.markdown('<div class="upload-zone">Limit 200MB per file · EPW</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader("", type=["epw"], label_visibility="collapsed")
+    st.write("##### 📤 Upload EPW File")
+    uploaded = st.file_uploader("", type=["epw"], label_visibility="collapsed", width=300)
     
     # Parameter Selection
-    st.markdown('<div class="control-section-header">⚙️ Parameter</div>', unsafe_allow_html=True)
+    # st.markdown('<div class="control-section-header">⚙️ Parameter</div>', unsafe_allow_html=True)
+    st.write("##### ⚙️ Parameter")
     selected_parameter = st.selectbox(
         "Select parameter",
         ["Temperature", "Humidity", "Sun Path"],
         label_visibility="collapsed",
         key="parameter_selector",
+        width=300
     )
 
-if uploaded is None:
-    with col_right:
-        st.info("Please upload an .epw file to analyze.")
-    st.stop()
+    if uploaded is None:
+        with col_right:
+            st.info("Please upload an .epw file to analyze.", width=300)
+        st.stop()
 
 try:
     raw = uploaded.getvalue().decode("utf-8", errors="replace")

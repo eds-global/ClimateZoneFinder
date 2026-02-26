@@ -4,6 +4,16 @@ import pandas as pd
 import plotly.express as px
 import io
 import re
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
+import io
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import tempfile
+import os
+
 
 st.set_page_config(
     page_title="Climate Analytics Dashboard",
@@ -281,16 +291,7 @@ st.markdown("""
 
 def generate_pptx_report(df: pd.DataFrame, start_date, end_date, start_hour: int, end_hour: int, selected_parameter: str):
     """Generate a PowerPoint report with Dry Bulb and Humidity analysis."""
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
-    from pptx.enum.text import PP_ALIGN
-    from pptx.dml.color import RGBColor
-    import io
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    import tempfile
-    import os
-    
+
     # Create presentation
     prs = Presentation()
     prs.slide_width = Inches(10)
@@ -767,7 +768,7 @@ def parse_epw(epw_text: str) -> pd.DataFrame:
     return df[["datetime", "dry_bulb_temperature", "relative_humidity", "hour"]]
 
 # === MAIN LAYOUT ===
-col_left, col_right = st.columns([0.85, 2.15], gap="large")
+col_left, col_right = st.columns([0.85, 2.15], gap="small")
 
 with col_left:
     # st.markdown('<div class="control-panel">', unsafe_allow_html=True)
@@ -790,7 +791,7 @@ with col_left:
     )
 
 if uploaded is None:
-    with col_right:
+    with col_left:
         st.info("Please upload an .epw file to analyze.", width=300)
     st.stop()
 
@@ -805,18 +806,18 @@ try:
     df["month_name"] = df["datetime"].dt.strftime("%b")
     
     with col_left:
-        st.markdown("""
-            <div style="
-                background-color: #f0fff4;
-                border-left: 4px solid #48bb78;
-                padding: 12px;
-                border-radius: 4px;
-                margin: 8px 0;
-                width: 300px;
-            ">
-                <div style="color: #22543d; font-weight: 600; font-size: 12px;">✅ EPW parsed successfully</div>
-            </div>
-        """, unsafe_allow_html=True)
+        # st.markdown("""
+        #     <div style="
+        #         background-color: #f0fff4;
+        #         border-left: 4px solid #48bb78;
+        #         padding: 12px;
+        #         border-radius: 4px;
+        #         margin: 8px 0;
+        #         width: 300px;
+        #     ">
+        #         <div style="color: #22543d; font-weight: 600; font-size: 12px;">✅ EPW parsed successfully</div>
+        #     </div>
+        # """, unsafe_allow_html=True)
         
         # Time range (hour of use) slider for diurnal/peak analysis
         st.markdown('<div class="control-section-header">⏰ Time Range (Hours)</div>', unsafe_allow_html=True)
@@ -844,7 +845,7 @@ try:
             st.session_state.end_month_idx = 11
         
         # Create two columns for start and end month dropdowns
-        month_col1, month_col2, col3 = st.columns([1,1,0.3], gap="small")
+        month_col1, month_col2, col3 = st.columns([1,1,0.5], gap="small")
         
         with month_col1:
             start_month = st.selectbox(
@@ -878,10 +879,49 @@ try:
         with col3:
             pass
         
-        # Generate Report Button
+        # # Generate Report Button
         st.markdown('<div class="control-section-header">📊 Report(PowerPoint)</div>', unsafe_allow_html=True)
-        if st.button("Generate Report", use_container_width=False, key="generate_report_btn", width=300):
-            st.session_state.generate_report = True
+        # if st.button("Generate Report", use_container_width=False, key="generate_report_btn", width=300):
+        #     st.session_state.generate_report = True
+        try:
+            # Get filter parameters from left column
+            start_month_num = st.session_state.start_month_idx + 1
+            end_month_num = st.session_state.end_month_idx + 1
+            year = df["datetime"].dt.year.iloc[0] if not df.empty else 2024
+            
+            start_date = pd.to_datetime(f"{year}-{start_month_num}-01").date()
+            if end_month_num == 12:
+                end_date = pd.to_datetime(f"{year}-12-31").date()
+            else:
+                end_date = (pd.to_datetime(f"{year}-{end_month_num+1}-01") - pd.Timedelta(days=1)).date()
+            
+            start_hour, end_hour = st.session_state.get("hour_range", (8, 18))
+            
+            # Generate the report
+            report_bytes = generate_pptx_report(
+                df, 
+                start_date, 
+                end_date, 
+                start_hour, 
+                end_hour, 
+                selected_parameter
+            )
+            
+            # Offer download
+            st.download_button(
+                label="Download Report",
+                data=report_bytes,
+                file_name=f"Climate_Analysis_Report_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                key="download_report",
+                width=300
+            )
+            
+            # Reset the flag
+            # st.session_state.generate_report = False
+            
+        except Exception as e:
+            st.error(f"❌ Failed to generate report: {str(e)}")
         
 except Exception as e:
     with col_left:
@@ -2821,13 +2861,14 @@ with col_right:
                     secondary_y=False,
                 )
                 
+                
                 fig_energy.update_layout(
                     title="Monthly Degree-Days Distribution",
                     xaxis_title="Month",
                     yaxis_title="Degree-Days",
                     hovermode="x unified",
                     height=400,
-                    barmode="group",
+                    barmode="stack",
                 )
                 
                 st.plotly_chart(fig_energy, use_container_width=True)
@@ -2912,47 +2953,47 @@ with col_right:
             st.info("Energy Metrics is available for Temperature and Humidity parameters.")
 
 # === GENERATE REPORT LOGIC ===
-if st.session_state.get("generate_report", False):
-    with st.spinner("Generating PowerPoint report..."):
-        try:
-            # Get filter parameters from left column
-            start_month_num = st.session_state.start_month_idx + 1
-            end_month_num = st.session_state.end_month_idx + 1
-            year = df["datetime"].dt.year.iloc[0] if not df.empty else 2024
-            
-            start_date = pd.to_datetime(f"{year}-{start_month_num}-01").date()
-            if end_month_num == 12:
-                end_date = pd.to_datetime(f"{year}-12-31").date()
-            else:
-                end_date = (pd.to_datetime(f"{year}-{end_month_num+1}-01") - pd.Timedelta(days=1)).date()
-            
-            start_hour, end_hour = st.session_state.get("hour_range", (8, 18))
-            
-            # Generate the report
-            report_bytes = generate_pptx_report(
-                df, 
-                start_date, 
-                end_date, 
-                start_hour, 
-                end_hour, 
-                selected_parameter
-            )
-            
-            # Offer download
-            st.download_button(
-                label="📥 Download Report (PowerPoint)",
-                data=report_bytes,
-                file_name=f"Climate_Analysis_Report_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="download_report"
-            )
-            
-            # Reset the flag
-            st.session_state.generate_report = False
-            
-        except Exception as e:
-            st.error(f"❌ Failed to generate report: {str(e)}")
-            st.session_state.generate_report = False
+# if st.session_state.get("generate_report", False):
+    # with st.spinner("Generating PowerPoint report..."):
+# try:
+#     # Get filter parameters from left column
+#     start_month_num = st.session_state.start_month_idx + 1
+#     end_month_num = st.session_state.end_month_idx + 1
+#     year = df["datetime"].dt.year.iloc[0] if not df.empty else 2024
+    
+#     start_date = pd.to_datetime(f"{year}-{start_month_num}-01").date()
+#     if end_month_num == 12:
+#         end_date = pd.to_datetime(f"{year}-12-31").date()
+#     else:
+#         end_date = (pd.to_datetime(f"{year}-{end_month_num+1}-01") - pd.Timedelta(days=1)).date()
+    
+#     start_hour, end_hour = st.session_state.get("hour_range", (8, 18))
+    
+#     # Generate the report
+#     report_bytes = generate_pptx_report(
+#         df, 
+#         start_date, 
+#         end_date, 
+#         start_hour, 
+#         end_hour, 
+#         selected_parameter
+#     )
+    
+#     # Offer download
+#     st.download_button(
+#         label="📥 Download Report (PowerPoint)",
+#         data=report_bytes,
+#         file_name=f"Climate_Analysis_Report_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.pptx",
+#         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+#         key="download_report"
+#     )
+    
+    # Reset the flag
+    # st.session_state.generate_report = False
+    
+# except Exception as e:
+#     st.error(f"❌ Failed to generate report: {str(e)}")
+#     st.session_state.generate_report = False
 
 # Adding extra space at the bottom
 st.markdown("<br><br>", unsafe_allow_html=True)

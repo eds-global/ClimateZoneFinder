@@ -116,7 +116,6 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     
-    /* Rest of your existing styles */
     .description {
         text-align: center;
         color: #666;

@@ -789,10 +789,10 @@ with col_left:
         width=300
     )
 
-    if uploaded is None:
-        with col_right:
-            st.info("Please upload an .epw file to analyze.", width=300)
-        st.stop()
+if uploaded is None:
+    with col_right:
+        st.info("Please upload an .epw file to analyze.", width=300)
+    st.stop()
 
 try:
     raw = uploaded.getvalue().decode("utf-8", errors="replace")
@@ -812,13 +812,14 @@ try:
                 padding: 12px;
                 border-radius: 4px;
                 margin: 8px 0;
+                width: 300px;
             ">
                 <div style="color: #22543d; font-weight: 600; font-size: 12px;">✅ EPW parsed successfully</div>
             </div>
         """, unsafe_allow_html=True)
         
         # Time range (hour of use) slider for diurnal/peak analysis
-        st.markdown('<div class="control-section-header">⏰ Time Range</div>', unsafe_allow_html=True)
+        st.markdown('<div class="control-section-header">⏰ Time Range (Hours)</div>', unsafe_allow_html=True)
         hour_range = st.slider(
             "Select hours (start - end)",
             min_value=0,
@@ -827,6 +828,7 @@ try:
             step=1,
             key="hour_range",
             label_visibility="collapsed",
+            width=300
         )
         
         # Date range selection
@@ -842,7 +844,7 @@ try:
             st.session_state.end_month_idx = 11
         
         # Create two columns for start and end month dropdowns
-        month_col1, month_col2 = st.columns(2, gap="small")
+        month_col1, month_col2, col3 = st.columns([1,1,0.3], gap="small")
         
         with month_col1:
             start_month = st.selectbox(
@@ -850,7 +852,8 @@ try:
                 options=range(len(months_list)),
                 format_func=lambda x: months_list[x],
                 key="start_month_select",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                width=150
             )
             st.session_state.start_month_idx = start_month
         
@@ -867,13 +870,17 @@ try:
                 format_func=lambda x: months_list[x],
                 key="end_month_select",
                 index=min(st.session_state.end_month_idx - start_month, len(end_month_options) - 1),
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                width=150,
             )
             st.session_state.end_month_idx = end_month
         
+        with col3:
+            pass
+        
         # Generate Report Button
-        st.markdown('<div class="control-section-header">📊 Report</div>', unsafe_allow_html=True)
-        if st.button("📥 Generate Report (PowerPoint)", use_container_width=True, key="generate_report_btn"):
+        st.markdown('<div class="control-section-header">📊 Report(PowerPoint)</div>', unsafe_allow_html=True)
+        if st.button("Generate Report", use_container_width=False, key="generate_report_btn", width=300):
             st.session_state.generate_report = True
         
 except Exception as e:

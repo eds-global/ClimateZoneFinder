@@ -43,7 +43,7 @@ _BUILTIN_STATIONS = {
     "Lucknow/Amausi":         "IN023351400",
     "Jeddah":                 "SA000041024",
     "Riyadh":                 "SA000040438",
-    "Hyderabad":              "IN01900",
+    "Hyderabad":              "IN001080500",
 }
 
 

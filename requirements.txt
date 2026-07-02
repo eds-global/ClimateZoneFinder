@@ -10,3 +10,4 @@ openpyxl
 plotly
 python-pptx
 pvlib
+pythermalcomfort

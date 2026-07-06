@@ -209,9 +209,7 @@ def render(
     if active_tab == "Annual Trend":
         _render_annual_trend(df, daily_stats, start_date, end_date)
     elif active_tab == "Monthly Trend":
-        _render_monthly_trend(df, start_date, end_date)
-    elif active_tab == "Diurnal Profile":
-        _render_diurnal_profile(df, start_date, end_date, start_hour, end_hour)
+        _render_monthly_scatter(df)
     elif active_tab == "Stress Category":
         _render_stress_distribution(df, start_date, end_date)
 
@@ -304,6 +302,8 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
         st.info("No data available.")
         return
 
+    _render_annual_scatter(df)
+
     # ── KPI cards ─────────────────────────────────────────────────────────────
     max_row = df.loc[df["utci"].idxmax()]
     min_row = df.loc[df["utci"].idxmin()]
@@ -352,128 +352,115 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
     )
 
 
-def _render_monthly_trend(df, start_date, end_date):
-    monthly = df.groupby("month").agg(
-        utci_min=("utci", "min"),
-        utci_max=("utci", "max"),
-        utci_avg=("utci", "mean"),
-        dbt_avg=("dry_bulb_temperature", "mean"),
-        mrt_avg=("mrt", "mean"),
-    ).reset_index()
-    monthly["month_name"] = monthly["month"].apply(lambda x: _MONTH_SHORT[x - 1])
+def _render_annual_scatter(df):
+    """Every hour of the year, single panel, colored by UTCI stress category.
 
-    start_month = start_date.month
-    end_month   = end_date.month
+    EPW datetimes are a TMY composite (each month sourced from a different
+    real year), so the raw `datetime` column is not a single contiguous
+    year — it must be re-based onto one fixed calendar year for the x-axis,
+    the same trick `compute_daily_stats()` uses for the trend chart above.
+    """
+    categories = _stress_category_order(df["utci_stress_category"].unique())
+
+    x_norm = pd.to_datetime(dict(
+        year=2024,
+        month=df["datetime"].dt.month,
+        day=df["datetime"].dt.day,
+        hour=df["datetime"].dt.hour,
+        minute=df["datetime"].dt.minute,
+    ))
 
     fig = go.Figure()
-
-    if start_month > 1:
-        before = monthly[monthly["month"] < start_month]
-        fig.add_trace(go.Scatter(x=before["month_name"], y=before["utci_avg"],
-                                 mode="lines+markers",
-                                 line=dict(color="rgba(150,150,150,0.4)", width=1, dash="dot"),
-                                 marker=dict(size=4), name="Unselected Period",
-                                 showlegend=True, hoverinfo="skip"))
-
-    active = monthly[(monthly["month"] >= start_month) & (monthly["month"] <= end_month)]
-
-    fig.add_trace(go.Scatter(x=active["month_name"], y=active["utci_max"],
-                             fill=None, mode="lines", line_color="rgba(255,152,0,0)",
-                             showlegend=False, hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=active["month_name"], y=active["utci_min"],
-                             fill="tonexty", mode="lines", line_color="rgba(255,152,0,0)",
-                             name="UTCI Range", fillcolor="rgba(255,152,0,0.25)",
-                             customdata=active["utci_max"],
-                             hovertemplate="<b>%{x}</b><br>Min: %{y:.2f}°C<br>Max: %{customdata:.2f}°C<extra></extra>"))
-    fig.add_trace(go.Scatter(x=active["month_name"], y=active["mrt_avg"],
-                             mode="lines+markers", name="Mean Radiant Temperature (avg)",
-                             line=dict(color="#9c27b0", width=1.5, dash="dot"), marker=dict(size=5),
-                             hovertemplate="<b>%{x}</b><br>MRT: %{y:.2f}°C<extra></extra>"))
-    fig.add_trace(go.Scatter(x=active["month_name"], y=active["dbt_avg"],
-                             mode="lines+markers", name="Dry Bulb Temperature (avg)",
-                             line=dict(color="#3b82f6", width=2), marker=dict(size=7),
-                             hovertemplate="<b>%{x}</b><br>DBT: %{y:.2f}°C<extra></extra>"))
-    fig.add_trace(go.Scatter(x=active["month_name"], y=active["utci_avg"],
-                             mode="lines+markers", name="UTCI – \"Feels Like\" (avg)",
-                             line=dict(color="#d32f2f", width=2.5), marker=dict(size=8),
-                             hovertemplate="<b>%{x}</b><br>UTCI: %{y:.2f}°C<extra></extra>"))
-
-    if end_month < 12:
-        after = monthly[monthly["month"] > end_month]
-        fig.add_trace(go.Scatter(x=after["month_name"], y=after["utci_avg"],
-                                 mode="lines+markers",
-                                 line=dict(color="rgba(150,150,150,0.4)", width=1, dash="dot"),
-                                 marker=dict(size=4), showlegend=False, hoverinfo="skip"))
+    for cat in categories:
+        mask = df["utci_stress_category"] == cat
+        if not mask.any():
+            continue
+        fig.add_trace(go.Scattergl(
+            x=x_norm[mask], y=df.loc[mask, "utci"],
+            mode="markers",
+            marker=dict(size=3, color=UTCI_STRESS_COLORS[UTCI_STRESS_LABELS.index(cat)], opacity=0.5),
+            name=cat.title(),
+            hovertemplate=f"<b>{cat.title()}</b><br>%{{x|%b %d %H:00}}<br>UTCI: %{{y:.1f}}°C<extra></extra>",
+        ))
 
     fig.update_layout(
-        title="Monthly UTCI vs Dry Bulb Temperature",
-        xaxis_title="Month", yaxis_title="Temperature (°C)",
-        hovermode="x unified", showlegend=True,
+        title="Hourly UTCI — Full Year, Colored by Thermal Stress Category",
+        xaxis_title=None,
+        yaxis_title="UTCI (°C)",
+        xaxis=dict(tickformat="%b"),
+        template="plotly_white",
+        height=420,
+        showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=450, template="plotly_white", margin=dict(b=80),
+        margin=dict(b=40),
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("#### Monthly UTCI Summary")
-    kpi = active[["month_name", "utci_min", "utci_max", "utci_avg", "dbt_avg"]].copy()
-    kpi["feels_like_delta"] = kpi["utci_avg"] - kpi["dbt_avg"]
-    kpi.columns = ["Month", "UTCI Min (°C)", "UTCI Max (°C)", "UTCI Avg (°C)", "DBT Avg (°C)", "Feels-Like Δ (°C)"]
-    st.dataframe(kpi, use_container_width=True, hide_index=True,
-                 column_config={c: st.column_config.NumberColumn(format="%.2f") for c in kpi.columns[1:]})
 
+def _render_monthly_scatter(df):
+    """Every hour of the year, faceted by month, colored by UTCI stress category.
 
-def _render_diurnal_profile(df, start_date, end_date, start_hour, end_hour):
-    period = df[(df["datetime"].dt.date >= start_date) & (df["datetime"].dt.date <= end_date)]
-    period = period if not period.empty else df
+    Mirrors the classic "daily chart" small-multiples layout (one panel per
+    month, hour-of-day on x), but plots UTCI instead of dry bulb and colors
+    each point by its thermal stress category instead of a single hue, so the
+    shift in stress composition across months (not just the mean) is visible.
+    """
+    from plotly.subplots import make_subplots
 
-    hourly = period.groupby("hour").agg(
-        utci_min=("utci", "min"),
-        utci_max=("utci", "max"),
-        utci_avg=("utci", "mean"),
-        dbt_avg=("dry_bulb_temperature", "mean"),
-    ).reset_index()
+    months_present = sorted(df["month"].unique())
+    categories = _stress_category_order(df["utci_stress_category"].unique())
 
-    fig = go.Figure()
+    fig = make_subplots(
+        rows=1, cols=len(months_present),
+        shared_yaxes=True,
+        horizontal_spacing=0.004,
+        subplot_titles=[_MONTH_SHORT[m - 1] for m in months_present],
+    )
 
-    if start_hour > 0:
-        before = hourly[hourly["hour"] < start_hour]
-        fig.add_trace(go.Scatter(x=before["hour"], y=before["utci_avg"],
-                                 mode="lines+markers",
-                                 line=dict(color="rgba(150,150,150,0.4)", width=1, dash="dot"),
-                                 marker=dict(size=4), name="Unselected Hours",
-                                 showlegend=True, hoverinfo="skip"))
+    seen_categories = set()
+    for col, m in enumerate(months_present, start=1):
+        month_df = df[df["month"] == m]
 
-    active = hourly[(hourly["hour"] >= start_hour) & (hourly["hour"] <= end_hour)]
-    fig.add_trace(go.Scatter(x=active["hour"], y=active["utci_max"],
-                             fill=None, mode="lines", line_color="rgba(255,152,0,0)",
-                             showlegend=False, hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=active["hour"], y=active["utci_min"],
-                             fill="tonexty", mode="lines", line_color="rgba(255,152,0,0)",
-                             name="UTCI Range", fillcolor="rgba(255,152,0,0.25)",
-                             customdata=active["utci_max"],
-                             hovertemplate="<b>Hour %{x}:00</b><br>Min: %{y:.2f}°C<br>Max: %{customdata:.2f}°C<extra></extra>"))
-    fig.add_trace(go.Scatter(x=active["hour"], y=active["dbt_avg"],
-                             mode="lines+markers", name="Dry Bulb Temperature (avg)",
-                             line=dict(color="#3b82f6", width=2), marker=dict(size=6),
-                             hovertemplate="<b>Hour %{x}:00</b><br>DBT: %{y:.2f}°C<extra></extra>"))
-    fig.add_trace(go.Scatter(x=active["hour"], y=active["utci_avg"],
-                             mode="lines+markers", name="UTCI – \"Feels Like\" (avg)",
-                             line=dict(color="#d32f2f", width=2.5), marker=dict(size=7),
-                             hovertemplate="<b>Hour %{x}:00</b><br>UTCI: %{y:.2f}°C<extra></extra>"))
+        for cat in categories:
+            cat_df = month_df[month_df["utci_stress_category"] == cat]
+            if cat_df.empty:
+                continue
+            fig.add_trace(
+                go.Scatter(
+                    x=cat_df["hour"], y=cat_df["utci"],
+                    mode="markers",
+                    marker=dict(size=4, color=UTCI_STRESS_COLORS[UTCI_STRESS_LABELS.index(cat)], opacity=0.55),
+                    name=cat.title(), legendgroup=cat,
+                    showlegend=cat not in seen_categories,
+                    hovertemplate=f"<b>{cat.title()}</b><br>Hour %{{x}}:00<br>UTCI: %{{y:.1f}}°C<extra></extra>",
+                ),
+                row=1, col=col,
+            )
+            seen_categories.add(cat)
 
-    if end_hour < 23:
-        after = hourly[hourly["hour"] > end_hour]
-        fig.add_trace(go.Scatter(x=after["hour"], y=after["utci_avg"],
-                                 mode="lines+markers",
-                                 line=dict(color="rgba(150,150,150,0.4)", width=1, dash="dot"),
-                                 marker=dict(size=4), showlegend=False, hoverinfo="skip"))
+        hourly_mean = month_df.groupby("hour")["utci"].mean().reset_index()
+        fig.add_trace(
+            go.Scatter(
+                x=hourly_mean["hour"], y=hourly_mean["utci"],
+                mode="lines", line=dict(color="#d32f2f", width=2.5),
+                name="Hourly Average", legendgroup="avg",
+                showlegend=col == 1,
+                hovertemplate="Hour %{x}:00<br>Avg UTCI: %{y:.1f}°C<extra></extra>",
+            ),
+            row=1, col=col,
+        )
+
+        fig.update_xaxes(tickvals=[0, 6, 12, 18], row=1, col=col)
 
     fig.update_layout(
-        title="Diurnal UTCI vs Dry Bulb Temperature Profile (selected date range)",
-        xaxis_title="Hour of Day", yaxis_title="Temperature (°C)",
-        hovermode="x unified", showlegend=True,
-        template="plotly_white", height=450,
+        title="Hourly UTCI by Month — Full Year, Colored by Thermal Stress Category",
+        template="plotly_white",
+        height=480,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="center", x=0.5),
+        margin=dict(t=120, b=40),
     )
+    fig.update_yaxes(title_text="UTCI (°C)", row=1, col=1)
     st.plotly_chart(fig, use_container_width=True)
 
 

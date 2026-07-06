@@ -440,12 +440,7 @@ with col_left:
         )
 
     elif selected_parameter == "UTCI":
-        st.markdown('<div class="control-section-header">⏰ Time Range (Hours)</div>', unsafe_allow_html=True)
-        hour_range = st.slider(
-            "Select hours (start - end)", min_value=0, max_value=23,
-            value=(0, 23), step=1, key="hour_range",
-            label_visibility="collapsed", width=300,
-        )
+        hour_range = (0, 23)
 
         st.markdown('<div class="control-section-header">🧍 Person</div>', unsafe_allow_html=True)
         st.selectbox(
@@ -768,7 +763,7 @@ with col_right:
         )
         _sh, _eh = hour_range
 
-        tabs_list = ["Annual Trend", "Monthly Trend", "Diurnal Profile", "Stress Category"]
+        tabs_list = ["Annual Trend", "Monthly Trend", "Stress Category"]
         tab_objects = st.tabs(tabs_list)
         for tab_obj, tab_name in zip(tab_objects, tabs_list):
             with tab_obj:

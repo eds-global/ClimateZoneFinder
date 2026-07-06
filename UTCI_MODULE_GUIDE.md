@@ -327,7 +327,7 @@ the Stress Category tab):
 | `compute_utci(df, mrt)` | Step 3 — wind clipping + `utci()` call |
 | `add_utci_columns(...)` | Orchestrates steps 1–3, returns the augmented dataframe (`solar_altitude`, `solar_azimuth`, `delta_mrt`, `mrt`, `utci`, `utci_stress_category`, `utci_feels_like_diff`) |
 | `compute_daily_stats(df)` | Daily min/max/avg aggregation feeding the Annual Trend chart |
-| `render(...)` | Streamlit tab dispatcher (Annual Trend / Monthly Trend / Diurnal Profile / Stress Category) |
+| `render(...)` | Streamlit tab dispatcher (Annual Trend / Monthly Trend / Stress Category) |
 
 `add_utci_columns()` is called from `pages/analysis.py` inside a `st.cache_data`-wrapped
 function (`cached_utci_df`), keyed on the raw EPW bytes **and** every MRT parameter

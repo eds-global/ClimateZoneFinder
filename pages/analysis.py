@@ -445,10 +445,14 @@ with col_left:
         st.markdown('<div class="control-section-header">🧍 Person</div>', unsafe_allow_html=True)
         st.selectbox(
             "Posture",
-            ["standing", "sitting", "supine"],
+            ["walking", "standing", "sitting", "supine"],
             key="utci_posture",
             label_visibility="collapsed",
-            help="Body posture used in the ASHRAE 55 SolarCal shortwave MRT model",
+            help=(
+                "Body posture used in the ASHRAE 55 SolarCal shortwave MRT model. "
+                "\"Walking\" is modeled as standing — ASHRAE 55 has no separate "
+                "projected-area-factor table for an ambulatory posture."
+            ),
             width=300,
         )
 
@@ -744,7 +748,7 @@ with col_right:
         _lat = float(metadata.get("latitude") or 0.0)
         _lon = float(metadata.get("longitude") or 0.0)
         _tz  = metadata.get("timezone", "UTC")
-        _posture = st.session_state.get("utci_posture", "standing")
+        _posture = st.session_state.get("utci_posture", "walking")
         _svf     = float(st.session_state.get("utci_sky_view_factor", 1.0))
         _shade   = float(st.session_state.get("utci_shade_fraction", 0.0))
         _ground  = float(st.session_state.get("utci_ground_reflectance", 0.2))

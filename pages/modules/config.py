@@ -47,7 +47,7 @@ RUNOFF_COEFF_WATER  = 0.90
 VALID_GI_PERCENTILES = [85, 90, 95, 98]
 
 # ── UTCI / Mean Radiant Temperature ─────────────────────────────────────────────
-UTCI_DEFAULT_POSTURE           = "standing"  # ASHRAE 55 SolarCal posture
+UTCI_DEFAULT_POSTURE           = "walking"  # UI label; modeled as "standing" (no ASHRAE 55 walking fp table)
 UTCI_DEFAULT_SKY_VIEW_FACTOR   = 1.0         # 1 = fully open sky, lower = obstructed
 UTCI_DEFAULT_SHADE_FRACTION    = 0.0         # Fraction of time body is shaded from direct sun
 UTCI_DEFAULT_GROUND_REFLECTANCE = 0.2        # Ground/floor albedo used by SolarCal
@@ -63,7 +63,9 @@ UTCI_STRESS_LABELS = [
     "moderate heat stress", "strong heat stress", "very strong heat stress",
     "extreme heat stress",
 ]
+# Official UTCI thermal-stress color scale, cold → hot (matches the standard
+# UTCI legend used in operational tools, e.g. the UTCI-Fiala/BioKlima charts).
 UTCI_STRESS_COLORS = [
-    "#08306b", "#2166ac", "#4393c3", "#92c5de", "#d1e5f0",
-    "#4caf50", "#fee08b", "#fdae61", "#f46d43", "#a50026",
+    "#4D235F", "#224898", "#3288BD", "#67BCD4", "#8CD9D8",
+    "#74B761", "#EEB84A", "#E97A2E", "#CE2029", "#7A1A22",
 ]

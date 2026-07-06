@@ -69,6 +69,15 @@ def compute_solar_position(df: pd.DataFrame, lat: float, lon: float, tz_str: str
     )
 
 
+# ASHRAE 55 Annex C only publishes projected-area-factor (fp) tables for three
+# postures — standing, sitting, supine (see UTCI_MODULE_GUIDE.md §3.3). There is
+# no "walking" fp table in the standard, so a walking pedestrian is modeled with
+# the standing table: an ambulatory person's solar-facing silhouette is closest
+# to standing, and this is the convention outdoor-comfort tools use in the
+# absence of a dedicated ambulatory posture study.
+_POSTURE_ALIASES = {"walking": "standing"}
+
+
 def compute_mrt(
     df: pd.DataFrame,
     lat: float,
@@ -99,7 +108,7 @@ def compute_mrt(
         f_svv=np.full_like(alt_safe, f_svv),
         f_bes=np.full_like(alt_safe, f_bes),
         asw=asw,
-        posture=posture,
+        posture=_POSTURE_ALIASES.get(posture, posture),
         floor_reflectance=ground_reflectance,
         round_output=False,
     )
@@ -244,7 +253,7 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
     fig.add_trace(go.Bar(x=active["datetime_display"],
                          y=[26 - 9] * len(active), base=[9] * len(active),
                          name="No thermal stress zone (UTCI 9–26°C)",
-                         marker_color="rgba(76,175,80,0.15)",
+                         marker_color="rgba(116,183,97,0.18)",
                          marker_line_width=0, hoverinfo="skip"))
 
     # UTCI min/max range
@@ -329,7 +338,7 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
   <div style="font-size:11px;color:#718096;">{sub}</div>
 </div>"""
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5,c6 = st.columns(6)
     with c1: st.markdown(_card("Max UTCI", f"{max_row['utci']:.1f} °C",
                                 f"{max_row['datetime'].strftime('%b %d')} · {int(max_row['hour']):02d}:00 · {max_row['utci_stress_category']}",
                                 "#ef4444"), unsafe_allow_html=True)
@@ -337,12 +346,12 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
                                 f"{min_row['datetime'].strftime('%b %d')} · {int(min_row['hour']):02d}:00 · {min_row['utci_stress_category']}",
                                 "#3b82f6"), unsafe_allow_html=True)
     with c3: st.markdown(_card("Avg UTCI (period)", f"{utci_avg:.1f} °C", "Selected date range", "#8b5cf6"), unsafe_allow_html=True)
-    with c4: st.markdown(_card("Feels-Like Δ (period)", f"{feels_diff:+.1f} °C", "UTCI − Dry Bulb, avg", "#f59e0b"), unsafe_allow_html=True)
-    with c5: st.markdown(_card("Extreme Stress Hrs", f"{extreme_hrs}", "Annual, ≥46°C or <−27°C", "#a50026"), unsafe_allow_html=True)
+    # with c4: st.markdown(_card("Feels-Like Δ (period)", f"{feels_diff:+.1f} °C", "UTCI − Dry Bulb, avg", "#f59e0b"), unsafe_allow_html=True)
+    with c4: st.markdown(_card("Extreme Stress Hrs", f"{extreme_hrs}", "Annual, ≥46°C or <−27°C", "#7A1A22"), unsafe_allow_html=True)
 
-    c6, c7 = st.columns(2)
-    with c6: st.markdown(_card("Heat Stress Hours", f"{heat_hrs}", "Annual, UTCI ≥ 26°C", "#f46d43"), unsafe_allow_html=True)
-    with c7: st.markdown(_card("Cold Stress Hours", f"{cold_hrs}", "Annual, UTCI < 9°C", "#4393c3"), unsafe_allow_html=True)
+    # c5, c6 = st.columns(2)
+    with c5: st.markdown(_card("Heat Stress Hours", f"{heat_hrs}", "Annual, UTCI ≥ 26°C", "#CE2029"), unsafe_allow_html=True)
+    with c6: st.markdown(_card("Cold Stress Hours", f"{cold_hrs}", "Annual, UTCI < 9°C", "#3288BD"), unsafe_allow_html=True)
 
     st.caption(
         "MRT is estimated from EPW direct-normal irradiance and solar position "
@@ -532,6 +541,6 @@ def _render_stress_distribution(df, start_date, end_date):
 </div>"""
 
     c1, c2, c3 = st.columns(3)
-    with c1: st.markdown(_card("No Thermal Stress", f"{no_stress_pct:.1f} %", "Of selected period", "#4caf50"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Heat Stress", f"{heat_pct:.1f} %", "Moderate or worse", "#f46d43"), unsafe_allow_html=True)
-    with c3: st.markdown(_card("Cold Stress", f"{cold_pct:.1f} %", "Slight or worse", "#4393c3"), unsafe_allow_html=True)
+    with c1: st.markdown(_card("No Thermal Stress", f"{no_stress_pct:.1f} %", "Of selected period", "#74B761"), unsafe_allow_html=True)
+    with c2: st.markdown(_card("Heat Stress", f"{heat_pct:.1f} %", "Moderate or worse", "#E97A2E"), unsafe_allow_html=True)
+    with c3: st.markdown(_card("Cold Stress", f"{cold_pct:.1f} %", "Slight or worse", "#67BCD4"), unsafe_allow_html=True)

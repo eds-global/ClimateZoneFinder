@@ -167,18 +167,25 @@ the *standing* table can be reused as if the person's coordinate frame were rota
 (head-to-toe instead of head-to-sky) — mathematically equivalent to "supine = standing
 rotated so gravity points sideways relative to the sun."
 
-This is precisely **why the model only supports three postures**: ASHRAE 55's empirical
-table (derived from projected-area photography/geometry studies of the human body, Underwood
-& Ward 1966 and subsequent revisions cited in ASHRAE 55 Annex C) was only measured for these
-three canonical orientations. There is no standing "in-between" posture (e.g. crouching)
-with a published `fp` table, so `pythermalcomfort` (and this module) cannot support one.
+This is precisely **why `pythermalcomfort`'s `solar_gain()` only accepts three postures**:
+ASHRAE 55's empirical table (derived from projected-area photography/geometry studies of the
+human body, Underwood & Ward 1966 and subsequent revisions cited in ASHRAE 55 Annex C) was
+only measured for these three canonical orientations. There is no standing "in-between"
+posture (e.g. crouching) with a published `fp` table, so `pythermalcomfort` (and this module)
+cannot support one — passing anything else raises `ValueError` from `solar_gain()`.
 
-**Posture is exposed as a left-panel control** (default: *standing*, the natural assumption
-for a pedestrian/outdoor-comfort study) because it measurably changes ΔMRT — in the worked
-example in §6, switching only the posture (all else equal) shifts peak UTCI by several
-degrees, so it is a legitimate, physically meaningful parameter the analyst may want to
-vary for a specific use case (e.g. *supine* for a park lawn/lounging study, *sitting* for
-outdoor seating/café analysis).
+**Posture is exposed as a left-panel control** with four UI options — *walking*, *standing*,
+*sitting*, *supine* (default: *walking*, since UTCI is framed around an outdoor pedestrian) —
+because it measurably changes ΔMRT: in the worked example in §6, switching only the posture
+(all else equal) shifts peak UTCI by several degrees, so it is a legitimate, physically
+meaningful parameter the analyst may want to vary for a specific use case (e.g. *supine* for
+a park lawn/lounging study, *sitting* for outdoor seating/café analysis). **"Walking" is not
+a fourth `solar_gain()` posture** — ASHRAE 55 has no ambulatory fp table — so the module maps
+it onto *standing* (`_POSTURE_ALIASES` in `utci_module.py`) before calling `solar_gain()`: a
+walking person's solar-facing silhouette is closest to standing, and this is the convention
+outdoor-comfort tools use in the absence of a dedicated walking study. The UI label still
+reads "walking" so the analyst's mental model matches UTCI's own framing, but the physics
+underneath is identical to selecting "standing".
 
 ### 3.4 Effective radiation area fraction (`f_eff`)
 

@@ -32,7 +32,7 @@ from modules.ppt_report import generate_pptx_report, generate_shading_pptx_repor
 from modules.combined_report import generate_combined_pptx_report
 from modules.sun_path import render_sun_path_section
 from modules.dbt_module import calculate_ashrae_comfort
-from modules import dbt_module, humidity_module, wind_module, ventilation_module, thermal_comfort_module, rainfall_module, solar_pv_module
+from modules import dbt_module, humidity_module, wind_module, ventilation_module, thermal_comfort_module, rainfall_module, solar_pv_module, utci_module
 
 # ─── Page configuration ───────────────────────────────────────────────────────
 
@@ -95,6 +95,29 @@ def cached_df_with_derived(raw: str):
     df["month"]      = df["datetime"].dt.month
     df["month_name"] = df["datetime"].dt.strftime("%b")
     return df, metadata
+
+
+@st.cache_data(show_spinner="Calculating MRT & UTCI…")
+def cached_utci_df(raw: str, lat: float, lon: float, tz_str: str,
+                    posture: str, sky_view_factor: float,
+                    shade_fraction: float, ground_reflectance: float):
+    """Compute MRT + UTCI for every EPW hour once per (file, params) combo."""
+    df, _ = cached_df_with_derived(raw)
+    return utci_module.add_utci_columns(
+        df, lat, lon, tz_str,
+        posture=posture, sky_view_factor=sky_view_factor,
+        shade_fraction=shade_fraction, ground_reflectance=ground_reflectance,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def cached_utci_daily_stats(raw: str, lat: float, lon: float, tz_str: str,
+                             posture: str, sky_view_factor: float,
+                             shade_fraction: float, ground_reflectance: float):
+    """Daily UTCI/DBT/MRT stats, cached alongside cached_utci_df."""
+    utci_df = cached_utci_df(raw, lat, lon, tz_str, posture, sky_view_factor,
+                              shade_fraction, ground_reflectance)
+    return utci_module.compute_daily_stats(utci_df)
 
 
 # ─── Logo helper ──────────────────────────────────────────────────────────────
@@ -298,7 +321,7 @@ with col_left:
     st.write("##### Module")
     selected_parameter = st.selectbox(
         "Select parameter",
-        ["Temperature", "Humidity", "Sun Path", "Wind", "Ventilation", "Thermal Comfort", "Rainfall", "Solar PV"],
+        ["Temperature", "Humidity", "Sun Path", "Wind", "Ventilation", "Thermal Comfort", "UTCI", "Rainfall", "Solar PV"],
         label_visibility="collapsed",
         key="parameter_selector",
         width=300,
@@ -414,6 +437,43 @@ with col_left:
             value=False,
             key="tc_air_speed_adjust",
             help="Raise upper comfort limit by 1.5°C when wind speed > 1.5 m/s",
+        )
+
+    elif selected_parameter == "UTCI":
+        hour_range = (0, 23)
+
+        st.markdown('<div class="control-section-header">🧍 Person</div>', unsafe_allow_html=True)
+        st.selectbox(
+            "Posture",
+            ["walking", "standing", "sitting", "supine"],
+            key="utci_posture",
+            label_visibility="collapsed",
+            help=(
+                "Body posture used in the ASHRAE 55 SolarCal shortwave MRT model. "
+                "\"Walking\" is modeled as standing — ASHRAE 55 has no separate "
+                "projected-area-factor table for an ambulatory posture."
+            ),
+            width=300,
+        )
+
+        st.markdown('<div class="control-section-header">☀️ Solar Exposure</div>', unsafe_allow_html=True)
+        st.slider(
+            "Sky view factor", min_value=0.0, max_value=1.0, value=1.0, step=0.05,
+            key="utci_sky_view_factor",
+            help="Fraction of sky visible to the person (1 = fully open sky, lower = obstructed by buildings/trees)",
+            width=300,
+        )
+        st.slider(
+            "Shade fraction", min_value=0.0, max_value=1.0, value=0.0, step=0.05,
+            key="utci_shade_fraction",
+            help="Fraction of the body shaded from direct sun (0 = fully sun-exposed)",
+            width=300,
+        )
+        st.slider(
+            "Ground reflectance (albedo)", min_value=0.0, max_value=0.6, value=0.2, step=0.05,
+            key="utci_ground_reflectance",
+            help="Reflectance of the ground surface, used by the shortwave MRT model",
+            width=300,
         )
 
     elif selected_parameter == "Rainfall":
@@ -683,6 +743,38 @@ with col_right:
             start_hour       = _sh,
             end_hour         = _eh,
         )
+
+    elif selected_parameter == "UTCI":
+        _lat = float(metadata.get("latitude") or 0.0)
+        _lon = float(metadata.get("longitude") or 0.0)
+        _tz  = metadata.get("timezone", "UTC")
+        _posture = st.session_state.get("utci_posture", "walking")
+        _svf     = float(st.session_state.get("utci_sky_view_factor", 1.0))
+        _shade   = float(st.session_state.get("utci_shade_fraction", 0.0))
+        _ground  = float(st.session_state.get("utci_ground_reflectance", 0.2))
+
+        utci_df    = cached_utci_df(raw_epw, _lat, _lon, _tz, _posture, _svf, _shade, _ground)
+        utci_daily = cached_utci_daily_stats(raw_epw, _lat, _lon, _tz, _posture, _svf, _shade, _ground)
+
+        _year            = utci_df["datetime"].dt.year.iloc[0] if not utci_df.empty else 2024
+        _start_month_num = st.session_state.start_month_idx + 1
+        _end_month_num   = st.session_state.end_month_idx + 1
+        _utci_start_date = pd.to_datetime(f"{_year}-{_start_month_num}-01").date()
+        _utci_end_date   = (
+            pd.to_datetime(f"{_year}-12-31").date()
+            if _end_month_num == 12
+            else (pd.to_datetime(f"{_year}-{_end_month_num+1}-01") - pd.Timedelta(days=1)).date()
+        )
+        _sh, _eh = hour_range
+
+        tabs_list = ["Overview", "Annual Trend"]
+        tab_objects = st.tabs(tabs_list)
+        for tab_obj, tab_name in zip(tab_objects, tabs_list):
+            with tab_obj:
+                utci_module.render(
+                    utci_df, utci_daily, tab_name,
+                    _utci_start_date, _utci_end_date, _sh, _eh,
+                )
 
     elif selected_parameter == "Rainfall":
         rainfall_module.render(

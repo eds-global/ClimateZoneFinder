@@ -215,12 +215,10 @@ def render(
     end_hour: int,
 ) -> None:
     """Dispatch rendering based on the active tab."""
-    if active_tab == "Annual Trend":
-        _render_annual_trend(df, daily_stats, start_date, end_date)
-    elif active_tab == "Monthly Trend":
-        _render_monthly_scatter(df)
-    elif active_tab == "Stress Category":
+    if active_tab == "Overview":
         _render_stress_distribution(df, start_date, end_date)
+    elif active_tab == "Annual Trend":
+        _render_annual_trend(df, daily_stats, start_date, end_date)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,16 +310,18 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
         return
 
     _render_annual_scatter(df)
+    _render_monthly_scatter(df)
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
     max_row = df.loc[df["utci"].idxmax()]
     min_row = df.loc[df["utci"].idxmin()]
 
-    date_filtered = df[
-        (df["datetime"].dt.date >= start_date) &
-        (df["datetime"].dt.date <= end_date)
-    ]
-    period = date_filtered if not date_filtered.empty else df
+    # Filter by month number, not literal calendar date: EPW files are TMY
+    # composites where each month is sourced from a different real year, so
+    # comparing df["datetime"].dt.date against a synthetic single-year range
+    # would only match whichever months happen to share that arbitrary year.
+    month_filtered = df[df["month"].between(start_month_num, end_month_num)]
+    period = month_filtered if not month_filtered.empty else df
 
     utci_avg   = period["utci"].mean()
     feels_diff = period["utci_feels_like_diff"].mean()
@@ -462,7 +462,7 @@ def _render_monthly_scatter(df):
         fig.update_xaxes(tickvals=[0, 6, 12, 18], row=1, col=col)
 
     fig.update_layout(
-        title="Hourly UTCI by Month — Full Year, Colored by Thermal Stress Category",
+        title="Daily Average UTCI Distribution - Each Month",
         template="plotly_white",
         height=480,
         showlegend=True,
@@ -474,26 +474,33 @@ def _render_monthly_scatter(df):
 
 
 def _render_stress_distribution(df, start_date, end_date):
-    period = df[(df["datetime"].dt.date >= start_date) & (df["datetime"].dt.date <= end_date)]
+    # Month-based filter, not literal calendar date — see the comment in
+    # _render_annual_trend() for why date-range filtering breaks on TMY EPWs.
+    start_month_num, end_month_num = start_date.month, end_date.month
+    period = df[df["month"].between(start_month_num, end_month_num)]
     period = period if not period.empty else df
 
     counts = period["utci_stress_category"].value_counts()
     order  = _stress_category_order(counts.index)
     counts = counts.reindex(order).fillna(0)
     pct    = counts / len(period) * 100
-    colors = [UTCI_STRESS_COLORS[UTCI_STRESS_LABELS.index(c)] for c in order]
 
-    fig = go.Figure(go.Bar(
-        x=counts.values, y=[c.title() for c in order], orientation="h",
-        marker_color=colors,
-        customdata=pct.values,
-        hovertemplate="<b>%{y}</b><br>%{x:.0f} hours (%{customdata:.1f}%)<extra></extra>",
-    ))
+    fig = go.Figure()
+    for cat in order:
+        fig.add_trace(go.Bar(
+            x=[counts[cat]], y=["Selected Period"], orientation="h",
+            name=cat.title(),
+            marker_color=UTCI_STRESS_COLORS[UTCI_STRESS_LABELS.index(cat)],
+            customdata=[pct[cat]],
+            hovertemplate=f"<b>{cat.title()}</b><br>%{{x:.0f}} hours (%{{customdata:.1f}}%)<extra></extra>",
+        ))
     fig.update_layout(
-        title="Hours by UTCI Thermal Stress Category (selected date range)",
+        title="Annual Thermal Stress Distrubution",
         xaxis_title="Hours", yaxis_title=None,
-        template="plotly_white", height=450, showlegend=False,
-        margin=dict(l=180),
+        barmode="stack",
+        template="plotly_white", height=230, showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.15, xanchor="center", x=0.5),
+        margin=dict(l=40, t=90, b=40),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -518,7 +525,7 @@ def _render_stress_distribution(df, start_date, end_date):
             hovertemplate="<b>%{x}</b><br>" + cat.title() + ": %{y:.1f}%<extra></extra>",
         ))
     fig2.update_layout(
-        title="Monthly UTCI Stress Category Composition (full year)",
+        title="Monthly Stress Distribution",
         xaxis_title="Month", yaxis_title="% of Hours",
         barmode="stack", template="plotly_white", height=420,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),

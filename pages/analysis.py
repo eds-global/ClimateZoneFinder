@@ -767,7 +767,7 @@ with col_right:
         )
         _sh, _eh = hour_range
 
-        tabs_list = ["Annual Trend", "Monthly Trend", "Stress Category"]
+        tabs_list = ["Overview", "Annual Trend"]
         tab_objects = st.tabs(tabs_list)
         for tab_obj, tab_name in zip(tab_objects, tabs_list):
             with tab_obj:

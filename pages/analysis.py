@@ -31,8 +31,10 @@ from modules.epw_parser import parse_epw
 from modules.ppt_report import generate_pptx_report, generate_shading_pptx_report
 from modules.combined_report import generate_combined_pptx_report
 from modules.sun_path import render_sun_path_section
+from modules.sun_path_3d import render_sun_path_3d
 from modules.dbt_module import calculate_ashrae_comfort
 from modules import dbt_module, humidity_module, wind_module, ventilation_module, thermal_comfort_module, rainfall_module, solar_pv_module, utci_module
+from modules import psychro_module, site_analysis_module, shading_designer_module
 from modules import analytics
 
 # ─── Page configuration ───────────────────────────────────────────────────────
@@ -325,7 +327,9 @@ with col_left:
     st.write("##### Module")
     selected_parameter = st.selectbox(
         "Select parameter",
-        ["Temperature", "Humidity", "Sun Path", "Wind", "Ventilation", "Thermal Comfort", "UTCI", "Rainfall", "Solar PV"],
+        ["Temperature", "Humidity", "Sun Path", "Wind", "Psychrometrics",
+         "Ventilation", "Thermal Comfort", "UTCI", "Rainfall", "Solar PV",
+         "Site Analysis (3D)", "Shading Designer (3D)"],
         label_visibility="collapsed",
         key="parameter_selector",
         width=300,
@@ -539,35 +543,46 @@ with col_left:
                 "green": float(st.session_state.get("runoff_area_green", 0.0)),
                 "water": float(st.session_state.get("runoff_area_water", 0.0)),
             }
-            _rain_bytes = _rain_ppt.generate_rainfall_pptx_report(
-                station_name         = _rain_station,
-                station_id           = _rain_sid,
-                year                 = _rain_year,
-                start_month          = _rain_s,
-                end_month            = _rain_e,
-                heavy_rain_threshold = _rain_thresh,
-                surface_areas        = _rain_areas,
-                gi_percentile        = int(st.session_state.get("balance_percentile", 95)),
-                gi_start_year        = int(st.session_state.get("balance_start_year", 1990)),
-            )
-            _rain_downloaded = st.download_button(
-                label="⬇️ Download Rainfall Report",
-                data=_rain_bytes,
-                file_name=f"Rainfall_Analysis_{_rain_station}_{_rain_year}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="download_rainfall_report",
-                width=300,
-            )
-            if _rain_downloaded:
-                analytics.log_download(
-                    "Rainfall Report (PPTX)",
-                    detail=f"{_rain_station}, {_rain_year}",
+            if st.button("🛠️ Build Rainfall Report", key="gen_rainfall_report",
+                         width=300):
+                with st.spinner("Building rainfall report…"):
+                    st.session_state["rainfall_report_bytes"] = (
+                        _rain_ppt.generate_rainfall_pptx_report(
+                            station_name         = _rain_station,
+                            station_id           = _rain_sid,
+                            year                 = _rain_year,
+                            start_month          = _rain_s,
+                            end_month            = _rain_e,
+                            heavy_rain_threshold = _rain_thresh,
+                            surface_areas        = _rain_areas,
+                            gi_percentile        = int(st.session_state.get("balance_percentile", 95)),
+                            gi_start_year        = int(st.session_state.get("balance_start_year", 1990)),
+                        )
+                    )
+            if st.session_state.get("rainfall_report_bytes"):
+                _rain_downloaded = st.download_button(
+                    label="⬇️ Download Rainfall Report",
+                    data=st.session_state["rainfall_report_bytes"],
+                    file_name=f"Rainfall_Analysis_{_rain_station}_{_rain_year}.pptx",
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    key="download_rainfall_report",
+                    width=300,
                 )
+                if _rain_downloaded:
+                    analytics.log_download(
+                        "Rainfall Report (PPTX)",
+                        detail=f"{_rain_station}, {_rain_year}",
+                    )
         except Exception as _re:
             st.error(f"❌ Failed to generate rainfall report: {_re}")
 
     elif selected_parameter == "Solar PV":
         hour_range = (0, 23)
+
+    elif selected_parameter in ("Psychrometrics", "Site Analysis (3D)",
+                                "Shading Designer (3D)"):
+        hour_range = (0, 23)
+        st.caption("All controls for this module are on the analysis canvas →")
 
     elif selected_parameter == "Ventilation":
         hour_range = (0, 23)
@@ -682,8 +697,14 @@ with col_left:
             _rain_sid = rainfall_module.STATIONS.get(_rain_stn) if _rain_stn else None
             _rain_yr  = int(st.session_state.get("rainfall_year", 2023)) if _rain_stn else None
 
-            report_bytes = generate_combined_pptx_report(
-                df, _full_year_start, _full_year_end, _full_day_start_hour, _full_day_end_hour,
+            _combined_clicked = st.button(
+                "🛠️ Build Combined Report", key="gen_combined_report", width=300,
+                help="Generates the full climate & shading PPTX (takes a few seconds)",
+            )
+            if _combined_clicked:
+              with st.spinner("Building combined report…"):
+                st.session_state["combined_report_bytes"] = generate_combined_pptx_report(
+                    df, _full_year_start, _full_year_end, _full_day_start_hour, _full_day_end_hour,
                 selected_parameter, metadata=metadata,
                 temp_threshold=float(st.session_state.get("temp_threshold", 28.0)),
                 rad_threshold=float(st.session_state.get("rad_threshold", 315.0)),
@@ -708,25 +729,26 @@ with col_left:
                 solar_pv_country=st.session_state.get("solar_pv_country", "India"),
                 solar_pv_roof_size_m2=float(st.session_state.get("solar_pv_roof_size", 100)),
                 solar_pv_roof_pct=float(st.session_state.get("solar_pv_roof_pct", 80)),
-            )
+                )
 
             _combined_filename = (
                 f"Climate_Shading_Analysis_Report_"
                 f"{_full_year_start.strftime('%Y%m%d')}_to_{_full_year_end.strftime('%Y%m%d')}.pptx"
             )
-            _combined_downloaded = st.download_button(
-                label="⬇️ Download Combined Climate & Shading Report",
-                data=report_bytes,
-                file_name=_combined_filename,
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="download_combined_report",
-                width=300,
-            )
-            if _combined_downloaded:
-                analytics.log_download(
-                    "Combined Climate & Shading Report (PPTX)",
-                    detail=_combined_filename,
+            if st.session_state.get("combined_report_bytes"):
+                _combined_downloaded = st.download_button(
+                    label="⬇️ Download Combined Climate & Shading Report",
+                    data=st.session_state["combined_report_bytes"],
+                    file_name=_combined_filename,
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    key="download_combined_report",
+                    width=300,
                 )
+                if _combined_downloaded:
+                    analytics.log_download(
+                        "Combined Climate & Shading Report (PPTX)",
+                        detail=_combined_filename,
+                    )
         except Exception as _e:
             st.error(f"❌ Failed to generate report: {_e}")
 
@@ -734,7 +756,23 @@ with col_left:
 
 with col_right:
     if selected_parameter == "Sun Path":
-        render_sun_path_section(df, metadata)
+        sp_tab_3d, sp_tab_2d = st.tabs(["🌐 3D Interactive Sun Path",
+                                        "2D Sun Path & Shading Analysis"])
+        with sp_tab_3d:
+            render_sun_path_3d(df, metadata)
+        with sp_tab_2d:
+            render_sun_path_section(df, metadata)
+
+    elif selected_parameter == "Psychrometrics":
+        _s = st.session_state.start_month_idx + 1
+        _e = st.session_state.end_month_idx + 1
+        psychro_module.render(df, metadata, months=list(range(_s, _e + 1)))
+
+    elif selected_parameter == "Site Analysis (3D)":
+        site_analysis_module.render(df, metadata)
+
+    elif selected_parameter == "Shading Designer (3D)":
+        shading_designer_module.render(df, metadata)
 
     elif selected_parameter == "Wind":
         _s = st.session_state.start_month_idx + 1
@@ -851,7 +889,7 @@ with col_right:
 
         # ── Native st.tabs() – zero server round-trips on switch ────────────────
         tabs_list = ["Annual Trend", "Monthly Trend", "Diurnal Profile",
-                     "Comfort Analysis", "Energy Metrics"]
+                     "Heatmap + 3D", "Comfort Analysis", "Energy Metrics"]
 
         tab_objects = st.tabs(tabs_list)
 

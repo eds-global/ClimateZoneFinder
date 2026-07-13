@@ -56,6 +56,217 @@ def render(
         _render_comfort_analysis(df, daily_stats, start_date, end_date)
     elif active_tab == "Energy Metrics":
         _render_energy_metrics(df, start_date, end_date, start_hour, end_hour)
+    elif active_tab == "Heatmap + 3D":
+        _render_heatmap_3d(df)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# "Heatmap + 3D" figure builders — pure functions (no Streamlit calls) so they
+# can be unit-tested headlessly. humidity_module imports and reuses them.
+
+_MONTH_LBL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def build_carpet_heatmap(
+    df: pd.DataFrame,
+    col: str,
+    *,
+    title: str,
+    colorscale: str,
+    unit: str,
+    series_name: str,
+    height: int = 420,
+) -> go.Figure:
+    """Annual carpet plot: day of year (x, real dates) × hour of day (y), colored by `col`."""
+    pivot = df.pivot_table(index="hour", columns="doy", values=col, aggfunc="mean")
+    pivot = pivot.reindex(index=range(24))
+    # Actual calendar dates for each day-of-year so hover shows e.g. "05 Mar".
+    # TMY files stitch months from different source years, so remap every date
+    # onto a single leap display year to keep the axis monotonic.
+    doy_dates = df.groupby("doy")["datetime"].first()
+    x = doy_dates.reindex(pivot.columns).apply(
+        lambda t: t.replace(year=2024, hour=0, minute=0) if pd.notna(t) else t
+    ).values
+
+    fig = go.Figure(go.Heatmap(
+        x=x,
+        y=list(pivot.index),
+        z=pivot.values,
+        colorscale=colorscale,
+        colorbar=dict(title=unit),
+        hovertemplate=(
+            "<b>%{x|%d %b}</b><br>"
+            "Hour: %{y:02d}:00<br>"
+            + series_name + ": %{z:.1f} " + unit
+            + "<extra></extra>"
+        ),
+    ))
+    fig.update_layout(
+        title=title,
+        xaxis=dict(title=None, tickformat="%d %b", dtick="M1"),
+        yaxis=dict(title="Hour of Day", dtick=3),
+        height=height,
+        template="plotly_white",
+        margin=dict(l=60, r=20, t=50, b=40),
+    )
+    return fig
+
+
+def build_month_hour_surface(
+    df: pd.DataFrame,
+    col: str,
+    *,
+    title: str,
+    colorscale: str,
+    unit: str,
+    series_name: str,
+    height: int = 520,
+) -> go.Figure:
+    """3D surface of the monthly (1-12) × hourly (0-23) mean of `col`."""
+    pivot = df.pivot_table(index="hour", columns="month", values=col, aggfunc="mean")
+    pivot = pivot.reindex(index=range(24), columns=range(1, 13))
+
+    fig = go.Figure(go.Surface(
+        x=list(pivot.columns),
+        y=list(pivot.index),
+        z=pivot.values,
+        colorscale=colorscale,
+        colorbar=dict(title=unit, len=0.6),
+        contours={"z": {"show": True, "usecolormap": True,
+                        "highlightcolor": "#ffffff", "project_z": True}},
+        hovertemplate=(
+            "Month: %{x}<br>Hour: %{y}:00<br>"
+            + f"Mean {series_name}: %{{z:.1f}} {unit}<extra></extra>"
+        ),
+    ))
+    fig.update_layout(
+        title=title,
+        scene=dict(
+            xaxis=dict(title="Month", tickmode="array",
+                       tickvals=list(range(1, 13)), ticktext=_MONTH_LBL),
+            yaxis=dict(title="Hour of Day", dtick=4),
+            zaxis=dict(title=f"{series_name} ({unit})"),
+            camera=dict(eye=dict(x=1.6, y=-1.7, z=0.9)),
+        ),
+        height=height,
+        template="plotly_white",
+        margin=dict(l=0, r=0, t=50, b=0),
+    )
+    return fig
+
+
+def build_animated_diurnal(
+    df: pd.DataFrame,
+    col: str,
+    *,
+    title: str,
+    unit: str,
+    series_name: str,
+    line_color: str,
+    band_fill: str,
+    height: int = 470,
+) -> go.Figure:
+    """Animated monthly diurnal profile: mean line + P10-P90 band, one frame per month."""
+    stats = (
+        df.groupby(["month", "hour"])[col]
+        .agg(mean="mean",
+             p10=lambda s: s.quantile(0.10),
+             p90=lambda s: s.quantile(0.90))
+        .reset_index()
+    )
+    months = sorted(int(m) for m in stats["month"].unique())
+
+    # Fixed y-range across all frames so the axis doesn't rescale during play
+    y_min = float(stats["p10"].min())
+    y_max = float(stats["p90"].max())
+    pad = max((y_max - y_min) * 0.08, 0.5)
+
+    def _month_traces(m: int) -> list[go.Scatter]:
+        d = stats[stats["month"] == m]
+        return [
+            go.Scatter(x=d["hour"], y=d["p90"], mode="lines",
+                       line=dict(width=0), showlegend=False,
+                       hovertemplate="Hour %{x}:00<br>P90: %{y:.1f} " + unit + "<extra></extra>"),
+            go.Scatter(x=d["hour"], y=d["p10"], mode="lines",
+                       line=dict(width=0), fill="tonexty", fillcolor=band_fill,
+                       name="P10–P90 band",
+                       hovertemplate="Hour %{x}:00<br>P10: %{y:.1f} " + unit + "<extra></extra>"),
+            go.Scatter(x=d["hour"], y=d["mean"], mode="lines+markers",
+                       name=f"Mean {series_name}",
+                       line=dict(color=line_color, width=2.5), marker=dict(size=6),
+                       hovertemplate="Hour %{x}:00<br>Mean: %{y:.1f} " + unit + "<extra></extra>"),
+        ]
+
+    frames = [go.Frame(data=_month_traces(m), name=_MONTH_LBL[m - 1]) for m in months]
+    fig = go.Figure(data=_month_traces(months[0]), frames=frames)
+
+    slider_steps = [
+        dict(method="animate", label=_MONTH_LBL[m - 1],
+             args=[[_MONTH_LBL[m - 1]],
+                   {"frame": {"duration": 0, "redraw": True},
+                    "mode": "immediate", "transition": {"duration": 0}}])
+        for m in months
+    ]
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(title="Hour of Day", dtick=2, range=[-0.5, 23.5]),
+        yaxis=dict(title=f"{series_name} ({unit})", range=[y_min - pad, y_max + pad]),
+        hovermode="x unified",
+        template="plotly_white",
+        height=height,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        updatemenus=[dict(
+            type="buttons", direction="left",
+            x=0.0, y=-0.22, xanchor="left", yanchor="top",
+            pad=dict(r=10, t=10),
+            buttons=[
+                dict(label="Play", method="animate",
+                     args=[None, {"frame": {"duration": 700, "redraw": True},
+                                  "fromcurrent": True,
+                                  "transition": {"duration": 250}}]),
+                dict(label="Pause", method="animate",
+                     args=[[None], {"frame": {"duration": 0, "redraw": False},
+                                    "mode": "immediate"}]),
+            ],
+        )],
+        sliders=[dict(
+            active=0, x=0.18, y=-0.18, len=0.8, xanchor="left", yanchor="top",
+            currentvalue=dict(prefix="Month: ", visible=True),
+            steps=slider_steps,
+        )],
+        margin=dict(b=110),
+    )
+    return fig
+
+
+def _render_heatmap_3d(df: pd.DataFrame) -> None:
+    st.plotly_chart(
+        build_carpet_heatmap(
+            df, "dry_bulb_temperature",
+            title="Annual Temperature Carpet Plot (Day × Hour)",
+            colorscale="RdYlBu_r", unit="°C", series_name="Temperature",
+        ),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        build_month_hour_surface(
+            df, "dry_bulb_temperature",
+            title="Mean Temperature Surface — Month × Hour",
+            colorscale="RdYlBu_r", unit="°C", series_name="Temperature",
+        ),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        build_animated_diurnal(
+            df, "dry_bulb_temperature",
+            title="Monthly Diurnal Temperature Profile (animated)",
+            unit="°C", series_name="Temperature",
+            line_color="#d32f2f", band_fill="rgba(255,100,100,0.25)",
+        ),
+        use_container_width=True,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -455,16 +666,18 @@ def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
         st.info("No data in the selected date/hour range.")
         return
 
-    hdd18          = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum()
-    cdd24          = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum()
-    hdd18_filtered = (18 - filtered["dry_bulb_temperature"]).clip(lower=0).sum()
-    cdd24_filtered = (filtered["dry_bulb_temperature"] - 24).clip(lower=0).sum()
+    # Degree-days: sum hourly differences then divide by 24 → true °C·day units,
+    # consistent with the Annual Trend KPI cards.
+    hdd18          = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum() / 24
+    cdd24          = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
+    hdd18_filtered = (18 - filtered["dry_bulb_temperature"]).clip(lower=0).sum() / 24
+    cdd24_filtered = (filtered["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
 
     monthly_hdd = df.groupby("month").apply(
-        lambda x: (18 - x["dry_bulb_temperature"]).clip(lower=0).sum()
+        lambda x: (18 - x["dry_bulb_temperature"]).clip(lower=0).sum() / 24
     )
     monthly_cdd = df.groupby("month").apply(
-        lambda x: (x["dry_bulb_temperature"] - 24).clip(lower=0).sum()
+        lambda x: (x["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
     )
     month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 

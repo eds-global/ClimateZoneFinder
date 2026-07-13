@@ -119,9 +119,13 @@ def prepare_wind_data(
         .clip(lower=0.0, upper=50.0)
     )
     # Normalise direction to [0, 360) – this eliminates 0/360 boundary errors.
+    # NOTE: missing/NaN directions are deliberately KEPT as NaN here (rather
+    # than filled with 0.0) so they don't create a fake "North" bias.  Rows
+    # with a missing direction stay in the frame for speed statistics but are
+    # flagged with sector_idx = -1 / direction_label = "Missing" below and
+    # excluded from all rose (directional) computations.
     wdf["wind_direction"] = (
         pd.to_numeric(wdf["wind_direction"], errors="coerce")
-        .fillna(0.0)
         % 360.0
     )
 
@@ -140,8 +144,11 @@ def prepare_wind_data(
     # Shifting by half a sector width before flooring ensures that 0° falls in
     # the middle of sector 0 (North) rather than on a sector boundary.
     sector_width = 360.0 / n_sectors
-    shifted = (wdf["wind_direction"] + sector_width / 2.0) % 360.0
-    wdf["sector_idx"] = (shifted / sector_width).astype(int) % n_sectors
+    missing_dir  = wdf["wind_direction"].isna()
+    shifted      = (wdf["wind_direction"] + sector_width / 2.0) % 360.0
+    sector_float = np.floor(shifted / sector_width) % n_sectors
+    # Missing directions get sector -1 (excluded from rose computations).
+    wdf["sector_idx"] = np.where(missing_dir, -1, sector_float).astype(int)
 
     # Compass label lookup
     if n_sectors == 16:
@@ -156,6 +163,7 @@ def prepare_wind_data(
         label_list = [f"{int(a)}°" for a in angles]
 
     idx_to_label = {i: label_list[i] for i in range(n_sectors)}
+    idx_to_label[-1] = "Missing"
     wdf["direction_label"] = wdf["sector_idx"].map(idx_to_label)
 
     # ── Speed bins ────────────────────────────────────────────────────────────
@@ -198,6 +206,10 @@ def compute_wind_rose(
     calm_pct   = calm_count / total * 100.0
 
     active = wdf[~wdf["is_calm"]].copy()
+    # Rows with a missing wind direction (sector_idx == -1) are kept for speed
+    # statistics but must never contribute to directional (rose) frequencies.
+    if "sector_idx" in active.columns:
+        active = active[active["sector_idx"] >= 0]
     if active.empty:
         return pd.DataFrame(), calm_pct
 
@@ -437,6 +449,543 @@ def plot_seasonal_wind_roses(
     return fig
 
 
+# ─── Sector label helper ──────────────────────────────────────────────────────
+
+_BRAND = "#a85c42"
+
+
+def _sector_label_list(n_sectors: int) -> list[str]:
+    """Compass labels for a given sector count (internal helper)."""
+    if n_sectors == 16:
+        return list(_DIR_16)
+    if n_sectors == 8:
+        return list(_DIR_8)
+    if n_sectors == 4:
+        return list(_DIR_4)
+    sector_width = 360.0 / n_sectors
+    return [f"{int(i * sector_width)}°" for i in range(n_sectors)]
+
+
+# ─── Plot: Animated Monthly Wind Rose ─────────────────────────────────────────
+
+def plot_animated_wind_rose(
+    wdf: pd.DataFrame,
+    n_sectors: int = 16,
+    exclude_calm: bool = False,
+) -> go.Figure:
+    """Animated wind rose: one frame per month (Jan → Dec).
+
+    - Stacked ``go.Barpolar`` per speed tier, same bins/colours as the
+      annual rose so the two charts are directly comparable.
+    - Play / Pause buttons + a month slider (labels = month abbreviations).
+    - Radial axis range is FIXED across frames (computed from the maximum
+      stacked frequency over all months) so the animation never rescales.
+    - Per-frame calm % shown as a centre annotation that updates each frame.
+    """
+    sector_width  = 360.0 / n_sectors
+    label_list    = _sector_label_list(n_sectors)
+    sector_angles = [i * sector_width for i in range(n_sectors)]
+    label_to_idx  = {lbl: i for i, lbl in enumerate(label_list)}
+
+    months_present = sorted(int(m) for m in wdf["month"].dropna().unique())
+    if not months_present:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No wind data available for animation",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font_size=14,
+        )
+        fig.update_layout(height=560)
+        return fig
+
+    # ── Pre-compute one frequency matrix (speed-bin × sector) per month ──────
+    per_month: dict[int, tuple[np.ndarray, float]] = {}
+    max_stack = 0.0
+    for m in months_present:
+        mdf = wdf[wdf["month"] == m]
+        rose_df_m, calm_m = compute_wind_rose(
+            mdf, n_sectors=n_sectors, exclude_calm=exclude_calm
+        )
+        mat = np.zeros((len(_SPEED_LABELS), n_sectors))
+        if not rose_df_m.empty:
+            for _, row in rose_df_m.iterrows():
+                spd = str(row["speed_bin"])
+                lbl = row["direction_label"]
+                if spd in _SPEED_LABELS and lbl in label_to_idx:
+                    mat[_SPEED_LABELS.index(spd), label_to_idx[lbl]] = row["frequency_pct"]
+        per_month[m] = (mat, calm_m)
+        stack_max = float(mat.sum(axis=0).max()) if mat.size else 0.0
+        max_stack = max(max_stack, stack_max)
+
+    r_max = max_stack * 1.1 if max_stack > 0 else 1.0
+
+    def _make_traces(mat: np.ndarray) -> list[go.Barpolar]:
+        traces = []
+        for i, spd_lbl in enumerate(_SPEED_LABELS):
+            traces.append(go.Barpolar(
+                r                 = mat[i].tolist(),
+                theta             = sector_angles,
+                name              = f"{spd_lbl} m/s",
+                marker_color      = _SPEED_COLORS[i % len(_SPEED_COLORS)],
+                marker_line_color = "white",
+                marker_line_width = 0.5,
+                opacity           = 0.9,
+                hovertemplate     = (
+                    "<b>%{theta:.0f}°</b><br>%{r:.2f}%"
+                    "<extra>" + spd_lbl + " m/s</extra>"
+                ),
+            ))
+        return traces
+
+    def _calm_annotation(month_num: int, calm_val: float) -> dict:
+        return dict(
+            text      = (
+                f"<b>{_MONTH_NAMES[month_num - 1]}</b><br>"
+                f"Calm {calm_val:.1f}%"
+            ),
+            x=0.5, y=0.5,
+            xref="paper", yref="paper",
+            showarrow = False,
+            font      = dict(size=12, color="#555"),
+            align     = "center",
+        )
+
+    first_month             = months_present[0]
+    first_mat, first_calm   = per_month[first_month]
+
+    frames = []
+    for m in months_present:
+        mat_m, calm_m = per_month[m]
+        frames.append(go.Frame(
+            name   = _MONTH_NAMES[m - 1],
+            data   = _make_traces(mat_m),
+            layout = go.Layout(annotations=[_calm_annotation(m, calm_m)]),
+        ))
+
+    slider_steps = [
+        dict(
+            method = "animate",
+            label  = _MONTH_NAMES[m - 1],
+            args   = [
+                [_MONTH_NAMES[m - 1]],
+                dict(
+                    mode       = "immediate",
+                    frame      = dict(duration=400, redraw=True),
+                    transition = dict(duration=200),
+                ),
+            ],
+        )
+        for m in months_present
+    ]
+
+    fig = go.Figure(data=_make_traces(first_mat), frames=frames)
+
+    fig.update_layout(
+        title=dict(
+            text="Monthly Wind Rose Animation",
+            font_size=16, font_color="#2c3e50",
+        ),
+        polar=dict(
+            radialaxis=dict(
+                visible       = True,
+                range         = [0, r_max],
+                ticksuffix    = "%",
+                gridcolor     = "rgba(128,128,128,0.3)",
+                linecolor     = "rgba(128,128,128,0.3)",
+                tickfont_size = 10,
+            ),
+            angularaxis=dict(
+                rotation      = 90,
+                direction     = "clockwise",
+                tickmode      = "array",
+                tickvals      = sector_angles,
+                ticktext      = label_list,
+                tickfont_size = 11,
+                gridcolor     = "rgba(128,128,128,0.3)",
+                linecolor     = "rgba(128,128,128,0.4)",
+            ),
+        ),
+        legend=dict(
+            title       = "Wind Speed",
+            orientation = "v",
+            x=1.05, y=0.5,
+            font_size   = 11,
+        ),
+        showlegend = True,
+        height     = 600,
+        template   = "plotly_white",
+        annotations=[_calm_annotation(first_month, first_calm)],
+        updatemenus=[dict(
+            type       = "buttons",
+            direction  = "left",
+            x=0.0, y=-0.08,
+            xanchor="left", yanchor="top",
+            pad        = dict(r=10, t=10),
+            bgcolor    = "white",
+            bordercolor= _BRAND,
+            font       = dict(color=_BRAND),
+            buttons    = [
+                dict(
+                    label  = "▶ Play",
+                    method = "animate",
+                    args   = [
+                        None,
+                        dict(
+                            frame       = dict(duration=700, redraw=True),
+                            transition  = dict(duration=250),
+                            fromcurrent = True,
+                            mode        = "immediate",
+                        ),
+                    ],
+                ),
+                dict(
+                    label  = "⏸ Pause",
+                    method = "animate",
+                    args   = [
+                        [None],
+                        dict(
+                            frame      = dict(duration=0, redraw=False),
+                            transition = dict(duration=0),
+                            mode       = "immediate",
+                        ),
+                    ],
+                ),
+            ],
+        )],
+        sliders=[dict(
+            active          = 0,
+            x=0.18, y=-0.06,
+            xanchor="left", yanchor="top",
+            len             = 0.8,
+            pad             = dict(t=25, b=5),
+            currentvalue    = dict(
+                prefix     = "Month: ",
+                visible    = True,
+                font       = dict(size=13, color=_BRAND),
+            ),
+            steps           = slider_steps,
+        )],
+    )
+    return fig
+
+
+# ─── Plot: 3D Wind Rose Tower ─────────────────────────────────────────────────
+
+def plot_wind_rose_3d(
+    wdf: pd.DataFrame,
+    n_sectors: int = 16,
+) -> go.Figure:
+    """3D "wind rose tower": one directional-frequency loop per month.
+
+    - Each month's rose is drawn as a closed ``go.Scatter3d`` line loop at
+      z = month index; x/y are frequency-scaled compass direction vectors
+      (N = +y, E = +x, meteorological clockwise convention).
+    - Each loop is coloured by that month's MEAN wind speed on a shared
+      Viridis colourscale (colorbar on the right).
+    - Faint vertical gridlines connect the same compass direction across
+      months; N/E/S/W labels sit at the base and month labels run along z.
+    """
+    label_list = _sector_label_list(n_sectors)
+    sector_width = 360.0 / n_sectors
+    # Compass angle (deg, clockwise from North) per sector centre
+    theta_deg = np.array([i * sector_width for i in range(n_sectors)])
+    theta_rad = np.deg2rad(theta_deg)
+
+    months_present = sorted(int(m) for m in wdf["month"].dropna().unique())
+    if not months_present:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No wind data available for 3D tower",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font_size=14,
+        )
+        fig.update_layout(height=650)
+        return fig
+
+    # ── Per-month directional frequency (% of month hours) + mean speed ──────
+    month_freqs:  dict[int, np.ndarray] = {}
+    month_speeds: dict[int, float]      = {}
+    for m in months_present:
+        mdf   = wdf[wdf["month"] == m]
+        total = len(mdf)
+        active = mdf[~mdf["is_calm"]]
+        if "sector_idx" in active.columns:
+            active = active[active["sector_idx"] >= 0]
+        counts = active.groupby("sector_idx").size() if not active.empty else pd.Series(dtype=int)
+        freq = np.array([
+            counts.get(i, 0) / total * 100.0 if total > 0 else 0.0
+            for i in range(n_sectors)
+        ])
+        month_freqs[m]  = freq
+        month_speeds[m] = float(mdf["wind_speed"].mean()) if total > 0 else 0.0
+
+    max_r = max((f.max() for f in month_freqs.values()), default=1.0)
+    if max_r <= 0:
+        max_r = 1.0
+
+    spd_vals = [month_speeds[m] for m in months_present]
+    s_min, s_max = min(spd_vals), max(spd_vals)
+    span = (s_max - s_min) if s_max > s_min else 1.0
+
+    try:
+        from plotly.colors import sample_colorscale
+        loop_colors = {
+            m: sample_colorscale(
+                "Viridis", [(month_speeds[m] - s_min) / span]
+            )[0]
+            for m in months_present
+        }
+    except Exception:
+        loop_colors = {m: "#31688e" for m in months_present}
+
+    fig = go.Figure()
+
+    # ── Faint vertical gridlines: same compass direction across months ───────
+    for i in range(n_sectors):
+        gx = [month_freqs[m][i] * np.sin(theta_rad[i]) for m in months_present]
+        gy = [month_freqs[m][i] * np.cos(theta_rad[i]) for m in months_present]
+        gz = list(months_present)
+        fig.add_trace(go.Scatter3d(
+            x=gx, y=gy, z=gz,
+            mode="lines",
+            line=dict(color="rgba(150,150,150,0.25)", width=1),
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+
+    # ── Monthly closed loops ──────────────────────────────────────────────────
+    for m in months_present:
+        freq  = month_freqs[m]
+        mname = _MONTH_NAMES[m - 1]
+        mspd  = month_speeds[m]
+
+        # Close the loop by repeating the first vertex
+        idx_loop = list(range(n_sectors)) + [0]
+        x = [freq[i] * np.sin(theta_rad[i]) for i in idx_loop]
+        y = [freq[i] * np.cos(theta_rad[i]) for i in idx_loop]
+        z = [m] * len(idx_loop)
+        custom = [
+            [mname, label_list[i], float(freq[i]), mspd]
+            for i in idx_loop
+        ]
+
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode="lines+markers",
+            line   = dict(color=loop_colors[m], width=5),
+            marker = dict(size=2.5, color=loop_colors[m]),
+            customdata = custom,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Direction: %{customdata[1]}<br>"
+                "Frequency: %{customdata[2]:.2f}%<br>"
+                "Mean speed: %{customdata[3]:.2f} m/s"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+    # ── Shared Viridis colorbar (dummy marker trace) ──────────────────────────
+    fig.add_trace(go.Scatter3d(
+        x=[0, 0], y=[0, 0], z=[months_present[0], months_present[0]],
+        mode="markers",
+        marker=dict(
+            size=0.001,
+            color=[s_min, s_max],
+            colorscale="Viridis",
+            cmin=s_min, cmax=s_max,
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="Mean wind<br>speed (m/s)", font_size=11),
+                thickness=14, len=0.6, x=1.02,
+            ),
+        ),
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+    # ── N/E/S/W labels at the base ────────────────────────────────────────────
+    lbl_r = max_r * 1.2
+    fig.add_trace(go.Scatter3d(
+        x=[0, lbl_r, 0, -lbl_r],
+        y=[lbl_r, 0, -lbl_r, 0],
+        z=[months_present[0]] * 4,
+        mode="text",
+        text=["N", "E", "S", "W"],
+        textfont=dict(size=14, color=_BRAND),
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        title=dict(
+            text="3D Wind Rose Tower – Monthly Directional Frequency",
+            font_size=16, font_color="#2c3e50",
+        ),
+        scene=dict(
+            xaxis=dict(
+                title="", showticklabels=False,
+                range=[-lbl_r * 1.15, lbl_r * 1.15],
+                showgrid=False, zeroline=False,
+                backgroundcolor="rgba(0,0,0,0)",
+            ),
+            yaxis=dict(
+                title="", showticklabels=False,
+                range=[-lbl_r * 1.15, lbl_r * 1.15],
+                showgrid=False, zeroline=False,
+                backgroundcolor="rgba(0,0,0,0)",
+            ),
+            zaxis=dict(
+                title    = "",
+                tickmode = "array",
+                tickvals = months_present,
+                ticktext = [_MONTH_NAMES[m - 1] for m in months_present],
+                tickfont = dict(size=10),
+                gridcolor= "rgba(128,128,128,0.25)",
+            ),
+            aspectmode  = "manual",
+            aspectratio = dict(x=1, y=1, z=1.4),
+            camera      = dict(
+                eye    = dict(x=1.7, y=1.7, z=0.75),
+                center = dict(x=0, y=0, z=-0.05),
+            ),
+        ),
+        height   = 680,
+        template = "plotly_white",
+        margin   = dict(l=10, r=60, t=50, b=10),
+    )
+    return fig
+
+
+# ─── Plot: Comfort Wind Rose ──────────────────────────────────────────────────
+
+# Thermal usefulness categories: (label, condition-range, colour)
+_COMFORT_CATS = [
+    ("Cooling wind (20–28°C)", "#0d9488"),   # teal  – useful ventilation air
+    ("Hot wind (>28°C)",       "#dc2626"),   # red   – brings unwanted heat
+    ("Cold wind (<20°C)",      "#3b82f6"),   # blue  – too cool for comfort
+]
+
+
+def plot_comfort_wind_rose(
+    wdf: pd.DataFrame,
+    n_sectors: int = 16,
+) -> go.Figure:
+    """Wind rose split by thermal usefulness of the incoming air.
+
+    Each directional bar is stacked by the coincident dry-bulb temperature:
+      - "Cooling wind"  : 20 ≤ T ≤ 28 °C  → useful natural-ventilation air
+      - "Hot wind"      : T > 28 °C       → brings unwanted heat
+      - "Cold wind"     : T < 20 °C       → too cool, causes draft discomfort
+    Frequencies are % of total hours; calm and missing-direction hours are
+    excluded from the bars.
+    """
+    sector_width  = 360.0 / n_sectors
+    label_list    = _sector_label_list(n_sectors)
+    sector_angles = [i * sector_width for i in range(n_sectors)]
+
+    if "dry_bulb_temperature" not in wdf.columns:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="dry_bulb_temperature column missing – cannot build comfort rose",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font_size=13,
+        )
+        fig.update_layout(height=520)
+        return fig
+
+    total = len(wdf)
+    active = wdf[~wdf["is_calm"]].copy()
+    if "sector_idx" in active.columns:
+        active = active[active["sector_idx"] >= 0]
+    active = active.dropna(subset=["dry_bulb_temperature"])
+
+    if total == 0 or active.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No directional wind data available",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font_size=14,
+        )
+        fig.update_layout(height=520)
+        return fig
+
+    t = active["dry_bulb_temperature"]
+    masks = {
+        _COMFORT_CATS[0][0]: (t >= 20.0) & (t <= 28.0),
+        _COMFORT_CATS[1][0]: t > 28.0,
+        _COMFORT_CATS[2][0]: t < 20.0,
+    }
+
+    fig = go.Figure()
+    for cat_label, cat_color in _COMFORT_CATS:
+        subset = active[masks[cat_label]]
+        counts = subset.groupby("sector_idx").size()
+        freqs  = [
+            counts.get(i, 0) / total * 100.0
+            for i in range(n_sectors)
+        ]
+        fig.add_trace(go.Barpolar(
+            r                 = freqs,
+            theta             = sector_angles,
+            name              = cat_label,
+            marker_color      = cat_color,
+            marker_line_color = "white",
+            marker_line_width = 0.5,
+            opacity           = 0.9,
+            hovertemplate     = (
+                "<b>%{theta:.0f}°</b><br>%{r:.2f}%"
+                "<extra>" + cat_label + "</extra>"
+            ),
+        ))
+
+    calm_pct = float(wdf["is_calm"].sum()) / total * 100.0
+
+    fig.update_layout(
+        title=dict(
+            text="Comfort Wind Rose – Thermal Usefulness by Direction",
+            font_size=16, font_color="#2c3e50",
+        ),
+        polar=dict(
+            radialaxis=dict(
+                visible       = True,
+                ticksuffix    = "%",
+                gridcolor     = "rgba(128,128,128,0.3)",
+                linecolor     = "rgba(128,128,128,0.3)",
+                tickfont_size = 10,
+            ),
+            angularaxis=dict(
+                rotation      = 90,
+                direction     = "clockwise",
+                tickmode      = "array",
+                tickvals      = sector_angles,
+                ticktext      = label_list,
+                tickfont_size = 11,
+                gridcolor     = "rgba(128,128,128,0.3)",
+                linecolor     = "rgba(128,128,128,0.4)",
+            ),
+        ),
+        legend=dict(
+            title       = "Air Temperature",
+            orientation = "v",
+            x=1.05, y=0.5,
+            font_size   = 11,
+        ),
+        showlegend = True,
+        height     = 540,
+        template   = "plotly_white",
+        annotations=[dict(
+            text      = f"Calm<br>{calm_pct:.1f}%",
+            x=0.5, y=0.5,
+            xref="paper", yref="paper",
+            showarrow = False,
+            font      = dict(size=11, color="#555"),
+            align     = "center",
+        )],
+    )
+    return fig
+
+
 # ─── Plot: Speed Heatmap ──────────────────────────────────────────────────────
 
 def plot_speed_heatmap(wdf: pd.DataFrame) -> go.Figure:
@@ -638,7 +1187,8 @@ def plot_climate_bubble(wdf: pd.DataFrame) -> go.Figure:
         if mdata.empty:
             continue
         mname = _MONTH_NAMES[m - 1]
-        fig.add_trace(go.Scatter(
+        # Scattergl: WebGL rendering keeps ~8760 points/12 traces responsive
+        fig.add_trace(go.Scattergl(
             x          = mdata["dry_bulb_temperature"],
             y          = mdata["relative_humidity"],
             mode       = "markers",
@@ -717,6 +1267,9 @@ def compute_wind_statistics(wdf: pd.DataFrame) -> dict:
 
     calm_pct = float(wdf["is_calm"].sum()) / total * 100.0
     active   = wdf[~wdf["is_calm"]]
+    # Exclude rows with a missing direction from the prevailing-direction count
+    if "sector_idx" in active.columns:
+        active = active[active["sector_idx"] >= 0]
 
     if active.empty:
         return dict(
@@ -811,39 +1364,13 @@ def render_wind_analysis(
     rose_df, calm_pct = compute_wind_rose(wdf, n_sectors=n_sectors, exclude_calm=exclude_calm)
     stats             = compute_wind_statistics(wdf)
 
-    # ════════ CHARTS (full width of col_right) ════════════════════════════════
-    # ── 1. Wind Rose ──────────────────────────────────────────────────────────
-    st.plotly_chart(
-        plot_wind_rose(rose_df, calm_pct, n_sectors),
-        use_container_width=True,
-    )
-
-    # ── 1b. Seasonal Wind Rose ────────────────────────────────────────────────
-    st.plotly_chart(
-        plot_seasonal_wind_roses(wdf, n_sectors),
-        use_container_width=True,
-    )
-
-    # ── 2. Wind Speed Heatmap (full width) ────────────────────────────────────
-    st.plotly_chart(plot_speed_heatmap(wdf), use_container_width=True)
-
-    # ── 3. Wind Direction Heatmap (full width) ────────────────────────────────
-    st.plotly_chart(plot_direction_heatmap(wdf), use_container_width=True)
-
-    # ── 4. Speed Distribution Histogram ──────────────────────────────────────
-    st.plotly_chart(plot_speed_histogram(wdf), use_container_width=True)
-
-    # ── 5. Temperature – Humidity – Wind Bubble Chart ─────────────────────────
-    st.plotly_chart(plot_climate_bubble(wdf), use_container_width=True)
-
-    # ── 6. Prevailing Wind Statistics ─────────────────────────────────────────
-    st.markdown(
-        '<div style="font-size:16px;font-weight:700;padding-bottom:6px;margin:20px 0 12px;">'
-        "Prevailing Wind Statistics</div>",
-        unsafe_allow_html=True,
-    )
-
+    # ════════ KPI CARDS (top, before tabs) ════════════════════════════════════
     if stats:
+        st.markdown(
+            '<div style="font-size:16px;font-weight:700;padding-bottom:6px;margin:8px 0 12px;">'
+            "Prevailing Wind Statistics</div>",
+            unsafe_allow_html=True,
+        )
         sc1, sc2, sc3, sc4, sc5 = st.columns(5)
         with sc1:
             st.markdown(
@@ -870,3 +1397,78 @@ def render_wind_analysis(
                 _kpi_card("Strongest Dir.", stats["strongest_direction"], "#06b6d4"),
                 unsafe_allow_html=True,
             )
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ════════ CHART TABS ═══════════════════════════════════════════════════════
+    (
+        tab_rose,
+        tab_anim,
+        tab_3d,
+        tab_comfort,
+        tab_heat,
+        tab_dist,
+    ) = st.tabs([
+        "Wind Rose",
+        "Monthly Animation",
+        "3D Rose Tower",
+        "Comfort Winds",
+        "Heatmaps",
+        "Distribution & Bubble",
+    ])
+
+    # ── Tab 1: Annual + Seasonal Wind Roses ───────────────────────────────────
+    with tab_rose:
+        st.plotly_chart(
+            plot_wind_rose(rose_df, calm_pct, n_sectors),
+            use_container_width=True,
+        )
+        st.plotly_chart(
+            plot_seasonal_wind_roses(wdf, n_sectors),
+            use_container_width=True,
+        )
+
+    # ── Tab 2: Animated Monthly Wind Rose ─────────────────────────────────────
+    with tab_anim:
+        st.plotly_chart(
+            plot_animated_wind_rose(wdf, n_sectors=n_sectors, exclude_calm=exclude_calm),
+            use_container_width=True,
+        )
+        st.caption(
+            "Press Play (or drag the slider) to step through the months: each frame is that "
+            "month's wind rose — bar length = % of the month's hours from that direction, "
+            "colours = speed tiers, and the centre label shows that month's calm share."
+        )
+
+    # ── Tab 3: 3D Wind Rose Tower ─────────────────────────────────────────────
+    with tab_3d:
+        st.plotly_chart(
+            plot_wind_rose_3d(wdf, n_sectors=n_sectors),
+            use_container_width=True,
+        )
+        st.caption(
+            "Each horizontal loop is one month's directional frequency rose (Jan at the bottom, "
+            "Dec at the top); a bulge towards a compass point means winds blew from there more "
+            "often, and the loop colour encodes that month's mean wind speed (drag to rotate)."
+        )
+
+    # ── Tab 4: Comfort Wind Rose ──────────────────────────────────────────────
+    with tab_comfort:
+        st.plotly_chart(
+            plot_comfort_wind_rose(wdf, n_sectors=n_sectors),
+            use_container_width=True,
+        )
+        st.caption(
+            "Bars split each direction's wind hours by coincident air temperature: teal "
+            "(20–28°C) marks directions that deliver useful cooling/ventilation air, red (>28°C) "
+            "winds that bring heat, and blue (<20°C) winds too cold for comfort ventilation."
+        )
+
+    # ── Tab 5: Month × Hour Heatmaps ──────────────────────────────────────────
+    with tab_heat:
+        st.plotly_chart(plot_speed_heatmap(wdf), use_container_width=True)
+        st.plotly_chart(plot_direction_heatmap(wdf), use_container_width=True)
+
+    # ── Tab 6: Speed Distribution + Climate Bubble ────────────────────────────
+    with tab_dist:
+        st.plotly_chart(plot_speed_histogram(wdf), use_container_width=True)
+        st.plotly_chart(plot_climate_bubble(wdf), use_container_width=True)

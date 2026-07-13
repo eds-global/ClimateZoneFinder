@@ -224,7 +224,9 @@ def plot_sun_path(data: pd.DataFrame, metadata: dict, chart_type: str = "Sun Pat
             temp = solpos_merged.get(
                 "dry_bulb_temperature", pd.Series(20, index=solpos_merged.index)
             ).fillna(20)
-            color_data = ((temp > 28) & (ghi > 315)).astype(int)
+            _tthr = float(st.session_state.get("temp_threshold", 28.0))
+            _rthr = float(st.session_state.get("rad_threshold", 315.0))
+            color_data = ((temp > _tthr) & (ghi > _rthr)).astype(int)
             colorscale = [[0, "#FFF9C4"], [1, "#E65100"]]
             colorbar_title = "Shading Need"
             colorbar_min, colorbar_max = 0, 1
@@ -305,7 +307,9 @@ def plot_sun_path(data: pd.DataFrame, metadata: dict, chart_type: str = "Sun Pat
                     "global_horizontal_irradiance", pd.Series(np.nan, index=subset.index)
                 ).fillna(0)
                 shading_labels = np.where(
-                    (shading_temp > 28) & (shading_ghi > 315), "Required", "Not Required"
+                    (shading_temp > float(st.session_state.get("temp_threshold", 28.0)))
+                    & (shading_ghi > float(st.session_state.get("rad_threshold", 315.0))),
+                    "Required", "Not Required",
                 )
                 customdata = np.stack(
                     (month_names, subset.index.day, hour_formatted,
@@ -365,10 +369,20 @@ def plot_sun_path(data: pd.DataFrame, metadata: dict, chart_type: str = "Sun Pat
             temp_col = solpos_merged.get(
                 "dry_bulb_temperature", pd.Series(20, index=solpos_merged.index)
             ).fillna(20)
+            # Hours per timestep from the actual data frequency (1.0 for
+            # hourly EPWs, 0.5 for half-hourly) — was a hardcoded /2 before.
+            _step_h = (
+                solpos_merged.index.to_series().diff().median().total_seconds() / 3600.0
+                if len(solpos_merged) > 1 else 1.0
+            )
+            if not np.isfinite(_step_h) or _step_h <= 0:
+                _step_h = 1.0
+            _tthr = float(st.session_state.get("temp_threshold", 28.0))
+            _rthr = float(st.session_state.get("rad_threshold", 315.0))
             sunshine_mask = ghi_col > 300
-            sunshine_hours = sunshine_mask.sum() / 2
-            shading_mask   = (temp_col > 28) & (ghi_col > 315)
-            shading_hours  = shading_mask.sum() / 2
+            sunshine_hours = sunshine_mask.sum() * _step_h
+            shading_mask   = (temp_col > _tthr) & (ghi_col > _rthr)
+            shading_hours  = shading_mask.sum() * _step_h
             shading_metrics = {
                 "total_sunshine_hours":   sunshine_hours,
                 "required_shading_hours": shading_hours,

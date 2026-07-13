@@ -5,6 +5,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+from .dbt_module import (
+    build_animated_diurnal,
+    build_carpet_heatmap,
+    build_month_hour_surface,
+)
+
 
 def render(
     df: pd.DataFrame,
@@ -26,9 +32,65 @@ def render(
         _render_comfort_analysis(df, daily_stats, start_date, end_date)
     elif active_tab == "Energy Metrics":
         _render_energy_metrics(df, start_date, end_date, start_hour, end_hour)
+    elif active_tab == "Heatmap + 3D":
+        _render_heatmap_3d(df)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _sustained_high_rh_hours(df: pd.DataFrame, threshold: float = 70.0,
+                             min_run_hours: int = 24) -> int:
+    """Hours belonging to runs of >= `min_run_hours` consecutive hours with
+    RH > `threshold` — a standard mold-germination screening proxy."""
+    rh = df.sort_values("datetime")["relative_humidity"]
+    mask = rh > threshold
+    run_id = (mask != mask.shift()).cumsum()
+    run_len = mask.groupby(run_id).transform("size")
+    return int((mask & (run_len >= min_run_hours)).sum())
+
+
+def _condensation_prone_mask(df: pd.DataFrame) -> pd.Series:
+    """Hours where the dew point is within 2 °C of the dry-bulb temperature —
+    an honest surface-condensation-risk proxy computed from the EPW data."""
+    return df["dew_point_temperature"] >= (df["dry_bulb_temperature"] - 2.0)
+
+
+def _render_heatmap_3d(df: pd.DataFrame) -> None:
+    st.plotly_chart(
+        build_carpet_heatmap(
+            df, "relative_humidity",
+            title="Annual Relative Humidity Carpet Plot (Day × Hour)",
+            colorscale="Blues", unit="%", series_name="RH",
+        ),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        build_month_hour_surface(
+            df, "relative_humidity",
+            title="Mean Relative Humidity Surface — Month × Hour",
+            colorscale="Blues", unit="%", series_name="RH",
+        ),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        build_animated_diurnal(
+            df, "relative_humidity",
+            title="Monthly Diurnal Humidity Profile (animated)",
+            unit="%", series_name="RH",
+            line_color="#00a8ff", band_fill="rgba(0,150,255,0.25)",
+        ),
+        use_container_width=True,
+    )
+    # Dew point is the better "mugginess" metric — RH alone hides absolute moisture.
+    st.plotly_chart(
+        build_carpet_heatmap(
+            df, "dew_point_temperature",
+            title="Annual Dew Point Carpet Plot (Day × Hour)",
+            colorscale="Viridis", unit="°C", series_name="Dew Point",
+        ),
+        use_container_width=True,
+    )
 
 
 def _render_annual_trend(df, daily_stats):
@@ -76,10 +138,13 @@ def _render_annual_trend(df, daily_stats):
     comfort_hrs   = len(df[(df["relative_humidity"] >= 40) & (df["relative_humidity"] <= 60)])
     comfort_pct   = comfort_hrs / len(df) * 100
     high_rh_hrs   = len(df[df["relative_humidity"] > 60])
-    cond_risk_hrs = len(df[df["relative_humidity"] > 75])
+    # Honest condensation proxy: dew point within 2 °C of dry-bulb temperature
+    cond_risk_hrs = int(_condensation_prone_mask(df).sum())
     low_rh_hrs    = len(df[df["relative_humidity"] < 30])
-    mold_risk_hrs = high_rh_hrs
+    # Sustained-humidity mold proxy: hours in runs of >= 24 consecutive hours > 70% RH
+    mold_risk_hrs = _sustained_high_rh_hours(df)
     over_humid_hrs = len(df[df["relative_humidity"] > 70])
+    mean_dew_point = df["dew_point_temperature"].mean()
 
     def _card(label, value, sub, color):
         return f"""
@@ -94,13 +159,13 @@ def _render_annual_trend(df, daily_stats):
     with c1: st.markdown(_card("Comfort 40-60%",   f"{comfort_pct:.0f} %",    "Occupied RH Hrs",          "#f59e0b"), unsafe_allow_html=True)
     with c2: st.markdown(_card("Peak RH (Occupied)", f"{rh_max:.1f} %",       "All year",                 "#ef4444"), unsafe_allow_html=True)
     with c3: st.markdown(_card("High Humidity Hrs", f"{high_rh_hrs}",         "> 60% RH",                 "#8b5cf6"), unsafe_allow_html=True)
-    with c4: st.markdown(_card("Condensation Risk", f"{cond_risk_hrs}",       "Surface Temp < Dew Point", "#06b6d4"), unsafe_allow_html=True)
+    with c4: st.markdown(_card("Condensation-Prone Hrs", f"{cond_risk_hrs}",  "DPT within 2°C of DBT",    "#06b6d4"), unsafe_allow_html=True)
     with c5: st.markdown(_card("Avg RH",            f"{rh_avg:.1f} %",        "",                         "#3b82f6"), unsafe_allow_html=True)
 
     c6, c7, c8, c9, c10 = st.columns(5)
     with c6:  st.markdown(_card("Low Humidity Hrs",    f"{low_rh_hrs}",        "< 30% RH",                 "#f59e0b"), unsafe_allow_html=True)
-    with c7:  st.markdown(_card("Mold Risk Hrs",       f"{mold_risk_hrs}",     "> 60% RH Sustained",       "#ef4444"), unsafe_allow_html=True)
-    with c8:  st.markdown(_card("HVAC RH Control",     f"{comfort_pct:.0f} %", "Outside RH vs Inside RH",  "#06b6d4"), unsafe_allow_html=True)
+    with c7:  st.markdown(_card("Sustained RH>70% (24h+ runs)", f"{mold_risk_hrs}", "Mold germination proxy", "#ef4444"), unsafe_allow_html=True)
+    with c8:  st.markdown(_card("Mean Dew Point",      f"{mean_dew_point:.1f} °C", "Annual average",       "#06b6d4"), unsafe_allow_html=True)
     with c9:  st.markdown(_card("Overhumidification",  f"{over_humid_hrs}",    "System Failure Indicator", "#3b82f6"), unsafe_allow_html=True)
     with c10: st.markdown(_card("Min RH",              f"{rh_min:.1f} %",      "",                         "#0891b2"), unsafe_allow_html=True)
 
@@ -361,28 +426,29 @@ def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
         return
 
     high_rh_annual    = len(df[df["relative_humidity"] > 60])
-    cond_risk_annual  = len(df[df["relative_humidity"] > 75])
+    # Honest condensation proxy: dew point within 2 °C of dry-bulb temperature
+    cond_risk_annual   = int(_condensation_prone_mask(df).sum())
     high_rh_filtered  = len(filtered[filtered["relative_humidity"] > 60])
-    cond_risk_filtered = len(filtered[filtered["relative_humidity"] > 75])
+    cond_risk_filtered = int(_condensation_prone_mask(filtered).sum())
 
     monthly_high  = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] > 60]))
-    monthly_cond  = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] > 75]))
+    monthly_cond  = df.groupby("month").apply(lambda x: int(_condensation_prone_mask(x).sum()))
     monthly_low   = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] < 30]))
 
     month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
     st.markdown("#### Humidity Performance Indicators")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("High RH Hrs (Annual)",        f"{high_rh_annual}",    ">60% RH")
-    with c2: st.metric("Condensation Risk (Annual)",  f"{cond_risk_annual}",  ">75% RH")
-    with c3: st.metric("High RH Hrs (Period)",        f"{high_rh_filtered}",  ">60% RH")
-    with c4: st.metric("Condensation (Period)",       f"{cond_risk_filtered}", ">75% RH")
+    with c1: st.metric("High RH Hrs (Annual)",           f"{high_rh_annual}",     ">60% RH")
+    with c2: st.metric("Condensation-Prone (Annual)",    f"{cond_risk_annual}",   "DPT within 2°C of DBT")
+    with c3: st.metric("High RH Hrs (Period)",           f"{high_rh_filtered}",   ">60% RH")
+    with c4: st.metric("Condensation-Prone (Period)",    f"{cond_risk_filtered}", "DPT within 2°C of DBT")
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(go.Bar(x=month_names, y=monthly_high.values,
                          name="High RH (>60%)", marker_color="#0099ff"), secondary_y=False)
     fig.add_trace(go.Bar(x=month_names, y=monthly_cond.values,
-                         name="Condensation Risk (>75%)", marker_color="#FF6B6B"), secondary_y=False)
+                         name="Condensation-prone (DPT within 2°C of DBT)", marker_color="#FF6B6B"), secondary_y=False)
     fig.add_trace(go.Scatter(x=month_names, y=monthly_low.values,
                              name="Low RH (<30%)", line=dict(color="#FFA500", width=2),
                              mode="lines+markers"), secondary_y=False)

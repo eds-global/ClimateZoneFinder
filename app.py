@@ -12,11 +12,16 @@ from datetime import datetime
 from PIL import Image as PILImage
 import base64
 
+from pages.modules import analytics
+
 st.set_page_config(
     page_title="Climate Zone Finder",
     page_icon="🌍",
     layout="wide"
 )
+
+analytics.require_login()
+analytics.log_page_view("Home")
 
 
 # Access URL query parameters
@@ -1431,14 +1436,20 @@ with left_col:
             pdf_data = pdf_buffer.getvalue()
             filename = f"Climate_Zone_Report_{selected_location}_{climate_zone}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             
-            st.download_button(
+            downloaded = st.download_button(
             label="Generate Report",
             data=pdf_data,
             file_name=filename,
             mime="application/pdf",
             type="secondary",
-            width=200
+            width=200,
+            key="download_nbc_report",
             )
+            if downloaded:
+                analytics.log_download(
+                    "NBC Climate Zone PDF Report",
+                    detail=f"{selected_location}, {selected_state} — {climate_zone}",
+                )
 
             
         else:

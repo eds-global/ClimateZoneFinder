@@ -2,3 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Analytics database (local usage/download logs)
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Streamlit secrets
+.streamlit/secrets.toml

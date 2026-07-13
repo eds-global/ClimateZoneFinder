@@ -33,6 +33,7 @@ from modules.combined_report import generate_combined_pptx_report
 from modules.sun_path import render_sun_path_section
 from modules.dbt_module import calculate_ashrae_comfort
 from modules import dbt_module, humidity_module, wind_module, ventilation_module, thermal_comfort_module, rainfall_module, solar_pv_module, utci_module
+from modules import analytics
 
 # ─── Page configuration ───────────────────────────────────────────────────────
 
@@ -40,6 +41,9 @@ st.set_page_config(
     page_title="Climate Analytics Dashboard",
     layout="wide",
 )
+
+analytics.require_login()
+analytics.log_page_view("Analysis")
 
 
 # ─── Cached helpers ───────────────────────────────────────────────────────────
@@ -546,7 +550,7 @@ with col_left:
                 gi_percentile        = int(st.session_state.get("balance_percentile", 95)),
                 gi_start_year        = int(st.session_state.get("balance_start_year", 1990)),
             )
-            st.download_button(
+            _rain_downloaded = st.download_button(
                 label="⬇️ Download Rainfall Report",
                 data=_rain_bytes,
                 file_name=f"Rainfall_Analysis_{_rain_station}_{_rain_year}.pptx",
@@ -554,6 +558,11 @@ with col_left:
                 key="download_rainfall_report",
                 width=300,
             )
+            if _rain_downloaded:
+                analytics.log_download(
+                    "Rainfall Report (PPTX)",
+                    detail=f"{_rain_station}, {_rain_year}",
+                )
         except Exception as _re:
             st.error(f"❌ Failed to generate rainfall report: {_re}")
 
@@ -701,17 +710,23 @@ with col_left:
                 solar_pv_roof_pct=float(st.session_state.get("solar_pv_roof_pct", 80)),
             )
 
-            st.download_button(
+            _combined_filename = (
+                f"Climate_Shading_Analysis_Report_"
+                f"{_full_year_start.strftime('%Y%m%d')}_to_{_full_year_end.strftime('%Y%m%d')}.pptx"
+            )
+            _combined_downloaded = st.download_button(
                 label="⬇️ Download Combined Climate & Shading Report",
                 data=report_bytes,
-                file_name=(
-                    f"Climate_Shading_Analysis_Report_"
-                    f"{_full_year_start.strftime('%Y%m%d')}_to_{_full_year_end.strftime('%Y%m%d')}.pptx"
-                ),
+                file_name=_combined_filename,
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 key="download_combined_report",
                 width=300,
             )
+            if _combined_downloaded:
+                analytics.log_download(
+                    "Combined Climate & Shading Report (PPTX)",
+                    detail=_combined_filename,
+                )
         except Exception as _e:
             st.error(f"❌ Failed to generate report: {_e}")
 

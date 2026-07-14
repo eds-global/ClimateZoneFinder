@@ -495,7 +495,7 @@ def _render_stress_distribution(df, start_date, end_date):
             hovertemplate=f"<b>{cat.title()}</b><br>%{{x:.0f}} hours (%{{customdata:.1f}}%)<extra></extra>",
         ))
     fig.update_layout(
-        title="Annual Thermal Stress Distrubution",
+        # title="Annual Thermal Stress Distrubution",
         xaxis_title="Hours", yaxis_title=None,
         barmode="stack",
         template="plotly_white", height=230, showlegend=True,

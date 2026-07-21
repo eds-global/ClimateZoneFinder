@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-import streamlit as st
+from .st_compat import st
 from .config import (
     ASHRAE_ALPHA, ASHRAE_T_PMA_MIN, ASHRAE_T_PMA_MAX,
     ASHRAE_COMFORT_NEUTRAL_A, ASHRAE_COMFORT_NEUTRAL_B,
@@ -594,17 +594,14 @@ def _psychrometric_background(fig: go.Figure, t_range=(-5, 50)) -> None:
 
 # ─── Chart renderers ──────────────────────────────────────────────────────────
 
-def _render_psychrometric_chart(df: pd.DataFrame, months: list) -> None:
-    """Render the interactive psychrometric chart with comfort zones."""
-    has_rh = "relative_humidity" in df.columns and df["relative_humidity"].notna().any()
-    if not has_rh:
-        st.warning("Relative humidity data not available — psychrometric chart disabled.")
-        return
+def build_psychrometric_chart_figure(df: pd.DataFrame, months: Optional[list] = None) -> go.Figure:
+    """
+    Build the interactive psychrometric chart with comfort zones.
 
+    Expects df with dry_bulb_temperature, relative_humidity, month, datetime
+    columns (enriched EPW data).  Pure — no Streamlit calls.
+    """
     fdf = df[df["month"].isin(months)].copy() if months else df.copy()
-    if fdf.empty:
-        st.info("No data for selected months.")
-        return
 
     fdf = compute_psychrometric_data(fdf)
     # Convert HR from kg/kg → g/kg for plotting
@@ -650,11 +647,31 @@ def _render_psychrometric_chart(df: pd.DataFrame, months: list) -> None:
         legend=dict(orientation="v", x=1.08, y=1),
         margin=dict(r=160),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_monthly_comfort_breakdown(df: pd.DataFrame) -> None:
-    """Stacked monthly bar chart of comfort categories."""
+def _render_psychrometric_chart(df: pd.DataFrame, months: list) -> None:
+    """Render the interactive psychrometric chart with comfort zones."""
+    has_rh = "relative_humidity" in df.columns and df["relative_humidity"].notna().any()
+    if not has_rh:
+        st.warning("Relative humidity data not available — psychrometric chart disabled.")
+        return
+
+    fdf = df[df["month"].isin(months)].copy() if months else df.copy()
+    if fdf.empty:
+        st.info("No data for selected months.")
+        return
+
+    st.plotly_chart(build_psychrometric_chart_figure(fdf, months), use_container_width=True)
+
+
+def build_monthly_comfort_breakdown_figure(df: pd.DataFrame) -> go.Figure:
+    """
+    Build the stacked monthly bar chart of comfort categories.
+
+    Expects df with month and comfort_cat columns (from classify_comfort).
+    Pure — no Streamlit calls.
+    """
     monthly = (
         df.groupby(["month", "comfort_cat"])
         .size()
@@ -689,11 +706,21 @@ def _render_monthly_comfort_breakdown(df: pd.DataFrame) -> None:
         template="plotly_white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_comfort_heatmap(df: pd.DataFrame) -> None:
-    """Heatmap: hour of day × month, coloured by dominant comfort category."""
+def _render_monthly_comfort_breakdown(df: pd.DataFrame) -> None:
+    """Stacked monthly bar chart of comfort categories."""
+    st.plotly_chart(build_monthly_comfort_breakdown_figure(df), use_container_width=True)
+
+
+def build_comfort_heatmap_figure(df: pd.DataFrame) -> go.Figure:
+    """
+    Build the heatmap: hour of day × month, coloured by dominant comfort category.
+
+    Expects df with month, hour and comfort_cat columns (from classify_comfort).
+    Pure — no Streamlit calls.
+    """
     # Encode categories as numeric for heatmap colour
     cat_order = {c: i for i, c in enumerate(_COMFORT_CATS)}
     df2 = df.copy()
@@ -737,11 +764,21 @@ def _render_comfort_heatmap(df: pd.DataFrame) -> None:
         height=380,
         template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_strategy_chart(df: pd.DataFrame) -> None:
-    """Horizontal bar chart of strategy distribution."""
+def _render_comfort_heatmap(df: pd.DataFrame) -> None:
+    """Heatmap: hour of day × month, coloured by dominant comfort category."""
+    st.plotly_chart(build_comfort_heatmap_figure(df), use_container_width=True)
+
+
+def build_strategy_chart_figure(df: pd.DataFrame) -> go.Figure:
+    """
+    Build the horizontal bar chart of strategy distribution.
+
+    Expects df with a strategy column (from map_strategies).
+    Pure — no Streamlit calls.
+    """
     counts = df["strategy"].value_counts()
     total  = counts.sum()
     pcts   = (counts / total * 100).round(1)
@@ -768,11 +805,22 @@ def _render_strategy_chart(df: pd.DataFrame) -> None:
         template="plotly_white",
         margin=dict(l=220),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_degree_hours_chart(degree: dict, months: list) -> None:
-    """Monthly CDH / HDH stacked grouped bar chart."""
+def _render_strategy_chart(df: pd.DataFrame) -> None:
+    """Horizontal bar chart of strategy distribution."""
+    st.plotly_chart(build_strategy_chart_figure(df), use_container_width=True)
+
+
+def build_degree_hours_figure(degree: dict, months: list) -> go.Figure:
+    """
+    Build the monthly CDH / HDH grouped bar chart.
+
+    Expects degree dict from compute_degree_hours (keys cdh_per_month,
+    hdh_per_month).  Unselected months are greyed out (None values).
+    Pure — no Streamlit calls.
+    """
     month_labels = [_MONTH_NAMES[m - 1] for m in range(1, 13)]
 
     cdh = degree["cdh_per_month"].reindex(range(1, 13), fill_value=0)
@@ -807,19 +855,24 @@ def _render_degree_hours_chart(degree: dict, months: list) -> None:
         template="plotly_white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_adaptive_comfort_chart(df: pd.DataFrame, months: list) -> None:
-    """Scatter of adaptive comfort: T_pma vs DBT with comfort bands."""
+def _render_degree_hours_chart(degree: dict, months: list) -> None:
+    """Monthly CDH / HDH stacked grouped bar chart."""
+    st.plotly_chart(build_degree_hours_figure(degree, months), use_container_width=True)
+
+
+def build_adaptive_comfort_chart_figure(df: pd.DataFrame, months: Optional[list] = None) -> go.Figure:
+    """
+    Build the adaptive comfort scatter: T_pma vs DBT with comfort bands.
+
+    Expects df enriched by compute_adaptive_comfort (t_pma, t_comf,
+    adaptive_applicable columns) with rows applicable to the adaptive model.
+    Pure — no Streamlit calls.
+    """
     fdf = df[df["month"].isin(months)].copy() if months else df.copy()
-    if fdf.empty or "t_comf" not in fdf.columns:
-        return
-
     appl = fdf[fdf["adaptive_applicable"]]
-    if appl.empty:
-        st.info("Adaptive comfort model not applicable for this climate (T_pma outside 10–33.5 °C).")
-        return
 
     # Sort for band line drawing
     sorted_pma = np.linspace(
@@ -884,7 +937,21 @@ def _render_adaptive_comfort_chart(df: pd.DataFrame, months: list) -> None:
         template="plotly_white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
+
+
+def _render_adaptive_comfort_chart(df: pd.DataFrame, months: list) -> None:
+    """Scatter of adaptive comfort: T_pma vs DBT with comfort bands."""
+    fdf = df[df["month"].isin(months)].copy() if months else df.copy()
+    if fdf.empty or "t_comf" not in fdf.columns:
+        return
+
+    appl = fdf[fdf["adaptive_applicable"]]
+    if appl.empty:
+        st.info("Adaptive comfort model not applicable for this climate (T_pma outside 10–33.5 °C).")
+        return
+
+    st.plotly_chart(build_adaptive_comfort_chart_figure(fdf, months), use_container_width=True)
 
 
 # ─── Comfort bubble chart ─────────────────────────────────────────────────────
@@ -1031,6 +1098,29 @@ def build_comfort_bubble_chart(df: pd.DataFrame, sample_every: int = 4) -> go.Fi
     return fig
 
 
+def compute_comfort_bubble_stats(df: pd.DataFrame) -> dict:
+    """
+    Compute per-category hour counts for the comfort bubble grid.
+
+    Returns dict with keys:
+        total_hours – int, number of rows classified
+        counts      – dict {category: hours} for all 9 bubble categories
+        pcts        – dict {category: % of period} for all 9 bubble categories
+    Pure — no Streamlit calls.
+    """
+    classified = classify_bubble_comfort(df)
+    total_hrs  = len(classified)
+    counts = {
+        cat: int((classified["bubble_comfort"] == cat).sum())
+        for cat in _BUBBLE_CATS
+    }
+    pcts = {
+        cat: (counts[cat] / total_hrs * 100 if total_hrs > 0 else 0.0)
+        for cat in _BUBBLE_CATS
+    }
+    return {"total_hours": total_hrs, "counts": counts, "pcts": pcts}
+
+
 def _render_comfort_bubble_chart(
     df: pd.DataFrame,
     months: list,
@@ -1053,8 +1143,7 @@ def _render_comfort_bubble_chart(
     st.plotly_chart(build_comfort_bubble_chart(fdf), use_container_width=True)
 
     # ── Per-category hour counts ───────────────────────────────────────────────
-    classified = classify_bubble_comfort(fdf)
-    total_hrs  = len(classified)
+    bubble_stats = compute_comfort_bubble_stats(fdf)
 
     st.markdown("#### Hours by Comfort Category")
     st.caption(
@@ -1072,8 +1161,8 @@ def _render_comfort_bubble_chart(
     for row_cats in grid:
         cols = st.columns(3)
         for col, cat in zip(cols, row_cats):
-            count = int((classified["bubble_comfort"] == cat).sum())
-            pct   = count / total_hrs * 100 if total_hrs > 0 else 0.0
+            count = bubble_stats["counts"][cat]
+            pct   = bubble_stats["pcts"][cat]
             color = _BUBBLE_COLORS[cat]
             with col:
                 st.markdown(
@@ -1104,6 +1193,64 @@ def _kpi(label: str, value: str, meta: str = "") -> str:
 
 
 # ─── Main render entry point ──────────────────────────────────────────────────
+
+def compute_thermal_comfort_stats(fdf: pd.DataFrame, degree: dict) -> dict:
+    """
+    Compute the KPI statistics shown on the thermal comfort dashboard cards.
+
+    Expects fdf enriched by compute_adaptive_comfort → classify_comfort →
+    map_strategies (and month/doy columns present), plus the degree dict
+    from compute_degree_hours.  Pure — no Streamlit calls.
+
+    Returns dict with keys:
+        total_hours, pct_comfortable, pct_in_80, pct_in_90,
+        strategy_pcts, cooling_pct, heating_pct, dominant_strategy,
+        cdh_total, hdh_total, mean_rh, diurnal_range_mean, comfort_cat_pcts
+    """
+    total_hrs  = len(fdf)
+    appl_mask  = fdf["adaptive_applicable"]
+    appl_count = appl_mask.sum()
+
+    pct_comfortable = (fdf["comfort_cat"] == "Comfortable").sum() / total_hrs * 100
+    pct_in_80       = (fdf.loc[appl_mask, "in_80"].sum() / appl_count * 100) if appl_count else 0.0
+    pct_in_90       = (fdf.loc[appl_mask, "in_90"].sum() / appl_count * 100) if appl_count else 0.0
+
+    strategy_counts = fdf["strategy"].value_counts()
+    strategy_pcts   = (strategy_counts / total_hrs * 100).to_dict()
+
+    cdh_pct = strategy_pcts.get("Mechanical Cooling", 0) + strategy_pcts.get("Evaporative Cooling", 0)
+    htg_pct = strategy_pcts.get("Heating", 0)
+
+    dominant_strategy = strategy_counts.idxmax() if not strategy_counts.empty else "N/A"
+
+    mean_rh        = float(fdf["relative_humidity"].mean()) if "relative_humidity" in fdf.columns else 50.0
+    diurnal_range_mean = float(
+        fdf.groupby("doy")["dry_bulb_temperature"]
+        .apply(lambda x: x.max() - x.min())
+        .mean()
+    )
+
+    comfort_cat_pcts = {
+        cat: (fdf["comfort_cat"] == cat).sum() / total_hrs * 100
+        for cat in _COMFORT_CATS
+    }
+
+    return {
+        "total_hours":        total_hrs,
+        "pct_comfortable":    pct_comfortable,
+        "pct_in_80":          pct_in_80,
+        "pct_in_90":          pct_in_90,
+        "strategy_pcts":      strategy_pcts,
+        "cooling_pct":        cdh_pct,
+        "heating_pct":        htg_pct,
+        "dominant_strategy":  dominant_strategy,
+        "cdh_total":          degree["cdh_total"],
+        "hdh_total":          degree["hdh_total"],
+        "mean_rh":            mean_rh,
+        "diurnal_range_mean": diurnal_range_mean,
+        "comfort_cat_pcts":   comfort_cat_pcts,
+    }
+
 
 def render(
     df: pd.DataFrame,
@@ -1168,29 +1315,18 @@ def render(
         return
 
     # ── Statistics ────────────────────────────────────────────────────────────
-    total_hrs  = len(fdf)
-    appl_mask  = fdf["adaptive_applicable"]
-    appl_count = appl_mask.sum()
-
-    pct_comfortable = (fdf["comfort_cat"] == "Comfortable").sum() / total_hrs * 100
-    pct_in_80       = (fdf.loc[appl_mask, "in_80"].sum() / appl_count * 100) if appl_count else 0.0
-    pct_in_90       = (fdf.loc[appl_mask, "in_90"].sum() / appl_count * 100) if appl_count else 0.0
-
-    strategy_counts = fdf["strategy"].value_counts()
-    strategy_pcts   = (strategy_counts / total_hrs * 100).to_dict()
-
-    cdh_pct = strategy_pcts.get("Mechanical Cooling", 0) + strategy_pcts.get("Evaporative Cooling", 0)
-    htg_pct = strategy_pcts.get("Heating", 0)
-
-    dominant_strategy = strategy_counts.idxmax() if not strategy_counts.empty else "N/A"
-
     degree = compute_degree_hours(df_full)   # full year CDH/HDH for context
-    mean_rh        = float(fdf["relative_humidity"].mean()) if "relative_humidity" in fdf.columns else 50.0
-    diurnal_range_mean = float(
-        fdf.groupby("doy")["dry_bulb_temperature"]
-        .apply(lambda x: x.max() - x.min())
-        .mean()
-    )
+    stats  = compute_thermal_comfort_stats(fdf, degree)
+
+    pct_comfortable    = stats["pct_comfortable"]
+    pct_in_80          = stats["pct_in_80"]
+    pct_in_90          = stats["pct_in_90"]
+    strategy_pcts      = stats["strategy_pcts"]
+    cdh_pct            = stats["cooling_pct"]
+    htg_pct            = stats["heating_pct"]
+    dominant_strategy  = stats["dominant_strategy"]
+    mean_rh            = stats["mean_rh"]
+    diurnal_range_mean = stats["diurnal_range_mean"]
 
     # ── Section title ─────────────────────────────────────────────────────────
     st.markdown('<div class="section-title">🌡️ Thermal Comfort Analysis</div>', unsafe_allow_html=True)
@@ -1274,7 +1410,7 @@ def render(
     st.markdown("#### Comfort Category Distribution")
     cc1, cc2, cc3, cc4, cc5 = st.columns(5, gap="small")
     for col, cat in zip([cc1, cc2, cc3, cc4, cc5], _COMFORT_CATS):
-        pct = (fdf["comfort_cat"] == cat).sum() / total_hrs * 100
+        pct = stats["comfort_cat_pcts"][cat]
         with col:
             st.markdown(
                 _kpi(cat, f"{pct:.1f}%", ""),

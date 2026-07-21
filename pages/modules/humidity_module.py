@@ -3,7 +3,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import streamlit as st
+from .st_compat import st
 
 from .dbt_module import (
     build_animated_diurnal,
@@ -93,7 +93,39 @@ def _render_heatmap_3d(df: pd.DataFrame) -> None:
     )
 
 
-def _render_annual_trend(df, daily_stats):
+def compute_annual_trend_stats(df: pd.DataFrame) -> dict:
+    """Pure KPI calculations for the Annual Trend tab (no Streamlit calls)."""
+    rh_min = df["relative_humidity"].min()
+    rh_max = df["relative_humidity"].max()
+    rh_avg = df["relative_humidity"].mean()
+
+    comfort_hrs   = len(df[(df["relative_humidity"] >= 40) & (df["relative_humidity"] <= 60)])
+    comfort_pct   = comfort_hrs / len(df) * 100
+    high_rh_hrs   = len(df[df["relative_humidity"] > 60])
+    # Honest condensation proxy: dew point within 2 °C of dry-bulb temperature
+    cond_risk_hrs = int(_condensation_prone_mask(df).sum())
+    low_rh_hrs    = len(df[df["relative_humidity"] < 30])
+    # Sustained-humidity mold proxy: hours in runs of >= 24 consecutive hours > 70% RH
+    mold_risk_hrs = _sustained_high_rh_hours(df)
+    over_humid_hrs = len(df[df["relative_humidity"] > 70])
+    mean_dew_point = df["dew_point_temperature"].mean()
+
+    return {
+        "rh_min": float(rh_min),
+        "rh_max": float(rh_max),
+        "rh_avg": float(rh_avg),
+        "comfort_pct": float(comfort_pct),
+        "high_rh_hrs": int(high_rh_hrs),
+        "cond_risk_hrs": int(cond_risk_hrs),
+        "low_rh_hrs": int(low_rh_hrs),
+        "mold_risk_hrs": int(mold_risk_hrs),
+        "over_humid_hrs": int(over_humid_hrs),
+        "mean_dew_point": float(mean_dew_point),
+    }
+
+
+def build_annual_trend_figure(daily_stats: pd.DataFrame) -> go.Figure:
+    """Annual relative-humidity profile: daily min/max band, average line and comfort band."""
     fig = go.Figure()
 
     # Comfort band (30–65%)
@@ -128,23 +160,15 @@ def _render_annual_trend(df, daily_stats):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         xaxis_rangeslider_visible=False, height=450, template="plotly_white", margin=dict(b=80),
     )
+    return fig
+
+
+def _render_annual_trend(df, daily_stats):
+    fig = build_annual_trend_figure(daily_stats)
     st.plotly_chart(fig, use_container_width=True)
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
-    rh_min = df["relative_humidity"].min()
-    rh_max = df["relative_humidity"].max()
-    rh_avg = df["relative_humidity"].mean()
-
-    comfort_hrs   = len(df[(df["relative_humidity"] >= 40) & (df["relative_humidity"] <= 60)])
-    comfort_pct   = comfort_hrs / len(df) * 100
-    high_rh_hrs   = len(df[df["relative_humidity"] > 60])
-    # Honest condensation proxy: dew point within 2 °C of dry-bulb temperature
-    cond_risk_hrs = int(_condensation_prone_mask(df).sum())
-    low_rh_hrs    = len(df[df["relative_humidity"] < 30])
-    # Sustained-humidity mold proxy: hours in runs of >= 24 consecutive hours > 70% RH
-    mold_risk_hrs = _sustained_high_rh_hours(df)
-    over_humid_hrs = len(df[df["relative_humidity"] > 70])
-    mean_dew_point = df["dew_point_temperature"].mean()
+    stats = compute_annual_trend_stats(df)
 
     def _card(label, value, sub, color):
         return f"""
@@ -156,21 +180,22 @@ def _render_annual_trend(df, daily_stats):
 </div>"""
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: st.markdown(_card("Comfort 40-60%",   f"{comfort_pct:.0f} %",    "Occupied RH Hrs",          "#f59e0b"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Peak RH (Occupied)", f"{rh_max:.1f} %",       "All year",                 "#ef4444"), unsafe_allow_html=True)
-    with c3: st.markdown(_card("High Humidity Hrs", f"{high_rh_hrs}",         "> 60% RH",                 "#8b5cf6"), unsafe_allow_html=True)
-    with c4: st.markdown(_card("Condensation-Prone Hrs", f"{cond_risk_hrs}",  "DPT within 2°C of DBT",    "#06b6d4"), unsafe_allow_html=True)
-    with c5: st.markdown(_card("Avg RH",            f"{rh_avg:.1f} %",        "",                         "#3b82f6"), unsafe_allow_html=True)
+    with c1: st.markdown(_card("Comfort 40-60%",   f"{stats['comfort_pct']:.0f} %",    "Occupied RH Hrs",          "#f59e0b"), unsafe_allow_html=True)
+    with c2: st.markdown(_card("Peak RH (Occupied)", f"{stats['rh_max']:.1f} %",       "All year",                 "#ef4444"), unsafe_allow_html=True)
+    with c3: st.markdown(_card("High Humidity Hrs", f"{stats['high_rh_hrs']}",         "> 60% RH",                 "#8b5cf6"), unsafe_allow_html=True)
+    with c4: st.markdown(_card("Condensation-Prone Hrs", f"{stats['cond_risk_hrs']}",  "DPT within 2°C of DBT",    "#06b6d4"), unsafe_allow_html=True)
+    with c5: st.markdown(_card("Avg RH",            f"{stats['rh_avg']:.1f} %",        "",                         "#3b82f6"), unsafe_allow_html=True)
 
     c6, c7, c8, c9, c10 = st.columns(5)
-    with c6:  st.markdown(_card("Low Humidity Hrs",    f"{low_rh_hrs}",        "< 30% RH",                 "#f59e0b"), unsafe_allow_html=True)
-    with c7:  st.markdown(_card("Sustained RH>70% (24h+ runs)", f"{mold_risk_hrs}", "Mold germination proxy", "#ef4444"), unsafe_allow_html=True)
-    with c8:  st.markdown(_card("Mean Dew Point",      f"{mean_dew_point:.1f} °C", "Annual average",       "#06b6d4"), unsafe_allow_html=True)
-    with c9:  st.markdown(_card("Overhumidification",  f"{over_humid_hrs}",    "System Failure Indicator", "#3b82f6"), unsafe_allow_html=True)
-    with c10: st.markdown(_card("Min RH",              f"{rh_min:.1f} %",      "",                         "#0891b2"), unsafe_allow_html=True)
+    with c6:  st.markdown(_card("Low Humidity Hrs",    f"{stats['low_rh_hrs']}",        "< 30% RH",                 "#f59e0b"), unsafe_allow_html=True)
+    with c7:  st.markdown(_card("Sustained RH>70% (24h+ runs)", f"{stats['mold_risk_hrs']}", "Mold germination proxy", "#ef4444"), unsafe_allow_html=True)
+    with c8:  st.markdown(_card("Mean Dew Point",      f"{stats['mean_dew_point']:.1f} °C", "Annual average",       "#06b6d4"), unsafe_allow_html=True)
+    with c9:  st.markdown(_card("Overhumidification",  f"{stats['over_humid_hrs']}",    "System Failure Indicator", "#3b82f6"), unsafe_allow_html=True)
+    with c10: st.markdown(_card("Min RH",              f"{stats['rh_min']:.1f} %",      "",                         "#0891b2"), unsafe_allow_html=True)
 
 
-def _render_monthly_trend(df, start_date, end_date):
+def compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Monthly min/max/avg relative-humidity aggregates, with month names."""
     monthly = df.groupby("month").agg(
         rh_min=("relative_humidity", "min"),
         rh_max=("relative_humidity", "max"),
@@ -179,6 +204,12 @@ def _render_monthly_trend(df, start_date, end_date):
 
     month_lbl = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     monthly["month_name"] = monthly["month"].apply(lambda x: month_lbl[x - 1])
+    return monthly
+
+
+def build_monthly_trend_figure(df: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """Monthly RH trend: min/max band, average line and comfort band, greyed outside range."""
+    monthly = compute_monthly_summary(df)
 
     start_month = start_date.month
     end_month   = end_date.month
@@ -248,8 +279,14 @@ def _render_monthly_trend(df, start_date, end_date):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=450, template="plotly_white", margin=dict(b=80),
     )
+    return fig
+
+
+def _render_monthly_trend(df, start_date, end_date):
+    fig = build_monthly_trend_figure(df, start_date, end_date)
     st.plotly_chart(fig, use_container_width=True)
 
+    monthly = compute_monthly_summary(df)
     st.markdown("#### Monthly Humidity Summary")
     kpi = monthly[["month_name", "rh_min", "rh_max", "rh_avg"]].copy()
     kpi.columns = ["Month", "Min (%)", "Max (%)", "Avg (%)"]
@@ -261,7 +298,8 @@ def _render_monthly_trend(df, start_date, end_date):
                  })
 
 
-def _render_diurnal_profile(df, start_hour, end_hour):
+def build_diurnal_profile_figure(df: pd.DataFrame, start_hour: int, end_hour: int) -> go.Figure:
+    """Diurnal RH profile: hourly min/max band, average line and comfort band."""
     hourly = df.groupby(["month", "hour"]).agg(
         rh_min=("relative_humidity", "min"),
         rh_max=("relative_humidity", "max"),
@@ -337,10 +375,15 @@ def _render_diurnal_profile(df, start_hour, end_hour):
         hovermode="x unified", showlegend=True,
         template="plotly_white", height=450,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_comfort_analysis(df, daily_stats, start_date, end_date):
+def _render_diurnal_profile(df, start_hour, end_hour):
+    st.plotly_chart(build_diurnal_profile_figure(df, start_hour, end_hour), use_container_width=True)
+
+
+def build_comfort_analysis_figure(daily_stats: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """Humidity comfort analysis: 40-60% comfort band vs daily RH range."""
     start_month_num = start_date.month
     end_month_num   = end_date.month
 
@@ -411,38 +454,46 @@ def _render_comfort_analysis(df, daily_stats, start_date, end_date):
         hovermode="x unified", showlegend=True,
         template="plotly_white", height=450,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
+def _render_comfort_analysis(df, daily_stats, start_date, end_date):
+    st.plotly_chart(build_comfort_analysis_figure(daily_stats, start_date, end_date),
+                    use_container_width=True)
+
+
+def compute_energy_metrics_stats(
+    df: pd.DataFrame, start_date, end_date, start_hour: int, end_hour: int
+) -> dict:
+    """Pure KPI calculations for the Energy Metrics tab (no Streamlit calls)."""
     filtered = df[
         (df["datetime"].dt.date >= start_date) &
         (df["datetime"].dt.date <= end_date) &
         (df["hour"].between(start_hour, end_hour))
     ]
 
-    if filtered.empty:
-        st.info("No data in the selected date/hour range.")
-        return
-
     high_rh_annual    = len(df[df["relative_humidity"] > 60])
     # Honest condensation proxy: dew point within 2 °C of dry-bulb temperature
     cond_risk_annual   = int(_condensation_prone_mask(df).sum())
     high_rh_filtered  = len(filtered[filtered["relative_humidity"] > 60])
-    cond_risk_filtered = int(_condensation_prone_mask(filtered).sum())
+    cond_risk_filtered = int(_condensation_prone_mask(filtered).sum()) if not filtered.empty else 0
 
+    return {
+        "high_rh_annual": int(high_rh_annual),
+        "cond_risk_annual": int(cond_risk_annual),
+        "high_rh_period": int(high_rh_filtered),
+        "cond_risk_period": int(cond_risk_filtered),
+        "period_hours": int(len(filtered)),
+    }
+
+
+def build_energy_metrics_figure(df: pd.DataFrame) -> go.Figure:
+    """Monthly humidity risk distribution: high-RH / condensation bars and low-RH line."""
     monthly_high  = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] > 60]))
     monthly_cond  = df.groupby("month").apply(lambda x: int(_condensation_prone_mask(x).sum()))
     monthly_low   = df.groupby("month").apply(lambda x: len(x[x["relative_humidity"] < 30]))
 
     month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
-    st.markdown("#### Humidity Performance Indicators")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("High RH Hrs (Annual)",           f"{high_rh_annual}",     ">60% RH")
-    with c2: st.metric("Condensation-Prone (Annual)",    f"{cond_risk_annual}",   "DPT within 2°C of DBT")
-    with c3: st.metric("High RH Hrs (Period)",           f"{high_rh_filtered}",   ">60% RH")
-    with c4: st.metric("Condensation-Prone (Period)",    f"{cond_risk_filtered}", "DPT within 2°C of DBT")
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(go.Bar(x=month_names, y=monthly_high.values,
@@ -457,4 +508,21 @@ def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
         xaxis_title="Month", yaxis_title="Hours",
         hovermode="x unified", height=400, barmode="group",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
+
+
+def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
+    stats = compute_energy_metrics_stats(df, start_date, end_date, start_hour, end_hour)
+
+    if stats["period_hours"] == 0:
+        st.info("No data in the selected date/hour range.")
+        return
+
+    st.markdown("#### Humidity Performance Indicators")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("High RH Hrs (Annual)",           f"{stats['high_rh_annual']}",   ">60% RH")
+    with c2: st.metric("Condensation-Prone (Annual)",    f"{stats['cond_risk_annual']}", "DPT within 2°C of DBT")
+    with c3: st.metric("High RH Hrs (Period)",           f"{stats['high_rh_period']}",   ">60% RH")
+    with c4: st.metric("Condensation-Prone (Period)",    f"{stats['cond_risk_period']}", "DPT within 2°C of DBT")
+
+    st.plotly_chart(build_energy_metrics_figure(df), use_container_width=True)

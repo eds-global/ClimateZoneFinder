@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import streamlit as st
+from .st_compat import st
 from .config import (
     ASHRAE_T_PMA_MIN, ASHRAE_T_PMA_MAX,
     ASHRAE_COMFORT_NEUTRAL_A, ASHRAE_COMFORT_NEUTRAL_B,
@@ -272,7 +272,59 @@ def _render_heatmap_3d(df: pd.DataFrame) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _render_annual_trend(df, daily_stats, start_date, end_date):
+def compute_annual_trend_stats(df: pd.DataFrame, start_date, end_date) -> dict:
+    """Pure KPI calculations for the Annual Trend tab (no Streamlit calls)."""
+    # Min/Max are annual records — always use the full dataset regardless of
+    # the selected date window, so the user always sees the true yearly peaks.
+    min_row  = df.loc[df["dry_bulb_temperature"].idxmin()]
+    max_row  = df.loc[df["dry_bulb_temperature"].idxmax()]
+
+    # Avg and diurnal use only the selected date window
+    date_filtered = df[
+        (df["datetime"].dt.date >= start_date) &
+        (df["datetime"].dt.date <= end_date)
+    ]
+    temp_avg = date_filtered["dry_bulb_temperature"].mean() if not date_filtered.empty else df["dry_bulb_temperature"].mean()
+
+    # Diurnal range: mean of (daily max − daily min) over the selected period
+    daily_source = date_filtered if not date_filtered.empty else df
+    daily_extremes = daily_source.groupby(daily_source["datetime"].dt.date).agg(
+        d_max=("dry_bulb_temperature", "max"),
+        d_min=("dry_bulb_temperature", "min"),
+    )
+    diurnal = (daily_extremes["d_max"] - daily_extremes["d_min"]).mean()
+
+    # Degree-days: sum hourly differences then divide by 24 → standard °C·day units
+    hdd18          = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum() / 24
+    cdd24          = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
+    mean_t         = df["dry_bulb_temperature"].mean()
+    comfort_hrs    = len(df[(df["dry_bulb_temperature"] >= mean_t - 3.5) &
+                            (df["dry_bulb_temperature"] <= mean_t + 3.5)])
+    comfort_80_pct = comfort_hrs / len(df) * 100
+    cooling_1pct   = df["dry_bulb_temperature"].quantile(0.99)
+    overheat_hrs   = len(df[df["dry_bulb_temperature"] > 28])
+    cold_hrs       = len(df[df["dry_bulb_temperature"] < 12])
+
+    return {
+        "temp_min": float(min_row["dry_bulb_temperature"]),
+        "temp_max": float(max_row["dry_bulb_temperature"]),
+        "min_date": min_row["datetime"].strftime("%b %d"),
+        "max_date": max_row["datetime"].strftime("%b %d"),
+        "min_hour": int(min_row["hour"]),
+        "max_hour": int(max_row["hour"]),
+        "temp_avg": float(temp_avg),
+        "diurnal_range": float(diurnal),
+        "cooling_1pct": float(cooling_1pct),
+        "hdd18": float(hdd18),
+        "cdd24": float(cdd24),
+        "comfort_80_pct": float(comfort_80_pct),
+        "overheat_hrs": int(overheat_hrs),
+        "cold_hrs": int(cold_hrs),
+    }
+
+
+def build_annual_trend_figure(daily_stats: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """Annual dry-bulb trend: daily min/max bars, average line and ASHRAE comfort bands."""
     start_month_num = start_date.month
     end_month_num   = end_date.month
 
@@ -365,6 +417,11 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
         template="plotly_white",
         margin=dict(b=80),
     )
+    return fig
+
+
+def _render_annual_trend(df, daily_stats, start_date, end_date):
+    fig = build_annual_trend_figure(daily_stats, start_date, end_date)
     st.plotly_chart(fig, use_container_width=True)
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
@@ -372,42 +429,7 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
         st.info("No data available.")
         return
 
-    # Min/Max are annual records — always use the full dataset regardless of
-    # the selected date window, so the user always sees the true yearly peaks.
-    min_row  = df.loc[df["dry_bulb_temperature"].idxmin()]
-    max_row  = df.loc[df["dry_bulb_temperature"].idxmax()]
-    temp_min = min_row["dry_bulb_temperature"]
-    temp_max = max_row["dry_bulb_temperature"]
-    min_ds   = min_row["datetime"].strftime("%b %d")
-    max_ds   = max_row["datetime"].strftime("%b %d")
-    min_hr   = int(min_row["hour"])
-    max_hr   = int(max_row["hour"])
-
-    # Avg and diurnal use only the selected date window
-    date_filtered = df[
-        (df["datetime"].dt.date >= start_date) &
-        (df["datetime"].dt.date <= end_date)
-    ]
-    temp_avg = date_filtered["dry_bulb_temperature"].mean() if not date_filtered.empty else df["dry_bulb_temperature"].mean()
-
-    # Diurnal range: mean of (daily max − daily min) over the selected period
-    daily_source = date_filtered if not date_filtered.empty else df
-    daily_extremes = daily_source.groupby(daily_source["datetime"].dt.date).agg(
-        d_max=("dry_bulb_temperature", "max"),
-        d_min=("dry_bulb_temperature", "min"),
-    )
-    diurnal = (daily_extremes["d_max"] - daily_extremes["d_min"]).mean()
-
-    # Degree-days: sum hourly differences then divide by 24 → standard °C·day units
-    hdd18          = (18 - df["dry_bulb_temperature"]).clip(lower=0).sum() / 24
-    cdd24          = (df["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
-    mean_t         = df["dry_bulb_temperature"].mean()
-    comfort_hrs    = len(df[(df["dry_bulb_temperature"] >= mean_t - 3.5) &
-                            (df["dry_bulb_temperature"] <= mean_t + 3.5)])
-    comfort_80_pct = comfort_hrs / len(df) * 100
-    cooling_1pct   = df["dry_bulb_temperature"].quantile(0.99)
-    overheat_hrs   = len(df[df["dry_bulb_temperature"] > 28])
-    cold_hrs       = len(df[df["dry_bulb_temperature"] < 12])
+    stats = compute_annual_trend_stats(df, start_date, end_date)
 
     def _card(label, value, sub, color):
         return f"""
@@ -419,21 +441,22 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
 </div>"""
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: st.markdown(_card("Min Temp",       f"{temp_min:.2f} °C", f"{min_ds} · {min_hr:02d}:00", "#f59e0b"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Max Temp",       f"{temp_max:.2f} °C", f"{max_ds} · {max_hr:02d}:00", "#ef4444"), unsafe_allow_html=True)
-    with c3: st.markdown(_card("Avg Temp",       f"{temp_avg:.2f} °C", "All year average",             "#8b5cf6"), unsafe_allow_html=True)
-    with c4: st.markdown(_card("Diurnal Range",  f"{diurnal:.2f} °C",  "",                             "#3b82f6"), unsafe_allow_html=True)
-    with c5: st.markdown(_card("1% Cooling",     f"{cooling_1pct:.2f} °C", "",                         "#06b6d4"), unsafe_allow_html=True)
+    with c1: st.markdown(_card("Min Temp",       f"{stats['temp_min']:.2f} °C", f"{stats['min_date']} · {stats['min_hour']:02d}:00", "#f59e0b"), unsafe_allow_html=True)
+    with c2: st.markdown(_card("Max Temp",       f"{stats['temp_max']:.2f} °C", f"{stats['max_date']} · {stats['max_hour']:02d}:00", "#ef4444"), unsafe_allow_html=True)
+    with c3: st.markdown(_card("Avg Temp",       f"{stats['temp_avg']:.2f} °C", "All year average",             "#8b5cf6"), unsafe_allow_html=True)
+    with c4: st.markdown(_card("Diurnal Range",  f"{stats['diurnal_range']:.2f} °C",  "",                       "#3b82f6"), unsafe_allow_html=True)
+    with c5: st.markdown(_card("1% Cooling",     f"{stats['cooling_1pct']:.2f} °C", "",                         "#06b6d4"), unsafe_allow_html=True)
 
     c6, c7, c8, c9, c10 = st.columns(5)
-    with c6:  st.markdown(_card("HDD18",         f"{hdd18:.0f}",         "",             "#dc2626"), unsafe_allow_html=True)
-    with c7:  st.markdown(_card("CDD24",         f"{cdd24:.0f}",         "",             "#0891b2"), unsafe_allow_html=True)
-    with c8:  st.markdown(_card("Comfort 80%",   f"{comfort_80_pct:.0f} %", "",          "#06b6d4"), unsafe_allow_html=True)
-    with c9:  st.markdown(_card("Overheat Hrs",  f"{overheat_hrs}",      "",             "#8b5cf6"), unsafe_allow_html=True)
-    with c10: st.markdown(_card("Cold Hrs",      f"{cold_hrs}",          "",             "#3b82f6"), unsafe_allow_html=True)
+    with c6:  st.markdown(_card("HDD18",         f"{stats['hdd18']:.0f}",         "",             "#dc2626"), unsafe_allow_html=True)
+    with c7:  st.markdown(_card("CDD24",         f"{stats['cdd24']:.0f}",         "",             "#0891b2"), unsafe_allow_html=True)
+    with c8:  st.markdown(_card("Comfort 80%",   f"{stats['comfort_80_pct']:.0f} %", "",          "#06b6d4"), unsafe_allow_html=True)
+    with c9:  st.markdown(_card("Overheat Hrs",  f"{stats['overheat_hrs']}",      "",             "#8b5cf6"), unsafe_allow_html=True)
+    with c10: st.markdown(_card("Cold Hrs",      f"{stats['cold_hrs']}",          "",             "#3b82f6"), unsafe_allow_html=True)
 
 
-def _render_monthly_trend(df, start_date, end_date):
+def compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Monthly min/max/avg aggregates for temperature and RH, with month names."""
     monthly = df.groupby("month").agg(
         temp_min=("dry_bulb_temperature", "min"),
         temp_max=("dry_bulb_temperature", "max"),
@@ -445,6 +468,12 @@ def _render_monthly_trend(df, start_date, end_date):
 
     month_lbl = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     monthly["month_name"] = monthly["month"].apply(lambda x: month_lbl[x - 1])
+    return monthly
+
+
+def build_monthly_trend_figure(df: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """Monthly temperature trend: min/max band and average line, greyed outside range."""
+    monthly = compute_monthly_summary(df)
 
     start_month = start_date.month
     end_month   = end_date.month
@@ -501,8 +530,14 @@ def _render_monthly_trend(df, start_date, end_date):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=450, template="plotly_white", margin=dict(b=80),
     )
+    return fig
+
+
+def _render_monthly_trend(df, start_date, end_date):
+    fig = build_monthly_trend_figure(df, start_date, end_date)
     st.plotly_chart(fig, use_container_width=True)
 
+    monthly = compute_monthly_summary(df)
     st.markdown("#### Monthly Temperature Summary")
     kpi = monthly[["month_name", "temp_min", "temp_max", "temp_avg"]].copy()
     kpi.columns = ["Month", "Min (°C)", "Max (°C)", "Avg (°C)"]
@@ -514,7 +549,8 @@ def _render_monthly_trend(df, start_date, end_date):
                  })
 
 
-def _render_diurnal_profile(df, start_hour, end_hour):
+def build_diurnal_profile_figure(df: pd.DataFrame, start_hour: int, end_hour: int) -> go.Figure:
+    """Diurnal temperature profile: hourly min/max band and average line."""
     hourly = df.groupby(["month", "hour"]).agg(
         temp_min=("dry_bulb_temperature", "min"),
         temp_max=("dry_bulb_temperature", "max"),
@@ -576,10 +612,15 @@ def _render_diurnal_profile(df, start_hour, end_hour):
         hovermode="x unified", showlegend=True,
         template="plotly_white", height=450,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_comfort_analysis(df, daily_stats, start_date, end_date):
+def _render_diurnal_profile(df, start_hour, end_hour):
+    st.plotly_chart(build_diurnal_profile_figure(df, start_hour, end_hour), use_container_width=True)
+
+
+def build_comfort_analysis_figure(daily_stats: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """ASHRAE adaptive comfort analysis: 90% acceptability band vs daily temperature range."""
     start_month_num = start_date.month
     end_month_num   = end_date.month
 
@@ -652,19 +693,23 @@ def _render_comfort_analysis(df, daily_stats, start_date, end_date):
         hovermode="x unified", showlegend=True,
         template="plotly_white", height=450,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
+def _render_comfort_analysis(df, daily_stats, start_date, end_date):
+    st.plotly_chart(build_comfort_analysis_figure(daily_stats, start_date, end_date),
+                    use_container_width=True)
+
+
+def compute_energy_metrics_stats(
+    df: pd.DataFrame, start_date, end_date, start_hour: int, end_hour: int
+) -> dict:
+    """Pure KPI calculations for the Energy Metrics tab (no Streamlit calls)."""
     filtered = df[
         (df["datetime"].dt.date >= start_date) &
         (df["datetime"].dt.date <= end_date) &
         (df["hour"].between(start_hour, end_hour))
     ]
-
-    if filtered.empty:
-        st.info("No data in the selected date/hour range.")
-        return
 
     # Degree-days: sum hourly differences then divide by 24 → true °C·day units,
     # consistent with the Annual Trend KPI cards.
@@ -673,6 +718,17 @@ def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
     hdd18_filtered = (18 - filtered["dry_bulb_temperature"]).clip(lower=0).sum() / 24
     cdd24_filtered = (filtered["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
 
+    return {
+        "hdd18_annual": float(hdd18),
+        "cdd24_annual": float(cdd24),
+        "hdd18_period": float(hdd18_filtered),
+        "cdd24_period": float(cdd24_filtered),
+        "period_hours": int(len(filtered)),
+    }
+
+
+def build_energy_metrics_figure(df: pd.DataFrame) -> go.Figure:
+    """Monthly heating/cooling degree-days distribution (stacked bars)."""
     monthly_hdd = df.groupby("month").apply(
         lambda x: (18 - x["dry_bulb_temperature"]).clip(lower=0).sum() / 24
     )
@@ -680,13 +736,6 @@ def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
         lambda x: (x["dry_bulb_temperature"] - 24).clip(lower=0).sum() / 24
     )
     month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
-    st.markdown("#### Energy Performance Indicators")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("HDD18 (Annual)", f"{hdd18:.0f}",          "Heating Degree-Days")
-    with c2: st.metric("CDD24 (Annual)", f"{cdd24:.0f}",          "Cooling Degree-Days")
-    with c3: st.metric("HDD18 (Period)", f"{hdd18_filtered:.0f}", "Heating Degree-Days")
-    with c4: st.metric("CDD24 (Period)", f"{cdd24_filtered:.0f}", "Cooling Degree-Days")
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(go.Bar(x=month_names, y=monthly_hdd.values, name="HDD18", marker_color="#2196F3"),
@@ -698,4 +747,21 @@ def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
         xaxis_title="Month", yaxis_title="Degree-Days",
         hovermode="x unified", height=400, barmode="stack",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
+
+
+def _render_energy_metrics(df, start_date, end_date, start_hour, end_hour):
+    stats = compute_energy_metrics_stats(df, start_date, end_date, start_hour, end_hour)
+
+    if stats["period_hours"] == 0:
+        st.info("No data in the selected date/hour range.")
+        return
+
+    st.markdown("#### Energy Performance Indicators")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("HDD18 (Annual)", f"{stats['hdd18_annual']:.0f}", "Heating Degree-Days")
+    with c2: st.metric("CDD24 (Annual)", f"{stats['cdd24_annual']:.0f}", "Cooling Degree-Days")
+    with c3: st.metric("HDD18 (Period)", f"{stats['hdd18_period']:.0f}", "Heating Degree-Days")
+    with c4: st.metric("CDD24 (Period)", f"{stats['cdd24_period']:.0f}", "Cooling Degree-Days")
+
+    st.plotly_chart(build_energy_metrics_figure(df), use_container_width=True)

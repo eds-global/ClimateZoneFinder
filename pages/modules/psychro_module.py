@@ -20,7 +20,7 @@ import calendar
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import streamlit as st
+from .st_compat import st
 
 from .config import P_ATM
 

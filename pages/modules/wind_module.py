@@ -1,5 +1,5 @@
 from typing import Optional
-import streamlit as st
+from .st_compat import st
 
 """Wind Analysis module – replicates the Wind tab of Berkeley CBE Clima tool.
 

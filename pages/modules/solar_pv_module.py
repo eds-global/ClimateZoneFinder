@@ -14,7 +14,7 @@ Exposes:
 import pathlib
 import pandas as pd
 import plotly.graph_objects as go
-import streamlit as st
+from .st_compat import st
 
 # ─── Colour palette ───────────────────────────────────────────────────────────
 _C_PRIMARY = "#f59e0b"

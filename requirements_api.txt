@@ -8,6 +8,8 @@ python-pptx
 pvlib
 pytz
 numpy
+pythermalcomfort
+shapely
 matplotlib
 plotly
 requests

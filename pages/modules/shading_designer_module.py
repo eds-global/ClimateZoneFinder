@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pvlib
-import streamlit as st
+from .st_compat import st
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 

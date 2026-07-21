@@ -11,25 +11,7 @@ from .config import (
     VALID_GI_PERCENTILES, DEFAULT_HEAVY_RAIN_THRESHOLD,
 )
 
-try:
-    import streamlit as st
-except ImportError:
-    import types
-    import functools as _functools
-    st = types.SimpleNamespace(
-        cache_data=lambda **kw: _functools.lru_cache(maxsize=64),
-        fragment=lambda fn: fn,
-        warning=lambda *a, **kw: None,
-        error=lambda *a, **kw: None,
-        info=lambda *a, **kw: None,
-        markdown=lambda *a, **kw: None,
-        plotly_chart=lambda *a, **kw: None,
-        columns=lambda *a, **kw: [],
-        tabs=lambda *a, **kw: [],
-        container=lambda *a, **kw: types.SimpleNamespace(
-            __enter__=lambda s: s, __exit__=lambda s, *a: None),
-        session_state={},
-    )
+from .st_compat import st
 
 _BUILTIN_STATIONS = {
     "Bengaluru":              "IN009010100",
@@ -266,7 +248,8 @@ def _intensity_color(mm: float) -> str:
 
 # ── Tab renderers ─────────────────────────────────────────────────────────────
 
-def _render_monthly_rainfall(df: pd.DataFrame, year: int) -> None:
+def build_monthly_rainfall_figure(df: pd.DataFrame, year: int) -> go.Figure:
+    """Pure builder: monthly rainfall totals bar chart (no Streamlit calls)."""
     monthly = df.groupby("month")["prcp_mm"].sum().reindex(range(1, 13), fill_value=0)
     annual_total = monthly.sum()
     annual_mean  = annual_total / 12
@@ -294,22 +277,47 @@ def _render_monthly_rainfall(df: pd.DataFrame, year: int) -> None:
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
+
+
+def compute_monthly_rainfall_stats(df: pd.DataFrame) -> dict:
+    """Pure KPI numbers for the Monthly Rainfall tab."""
+    monthly = df.groupby("month")["prcp_mm"].sum().reindex(range(1, 13), fill_value=0)
+    annual_total = float(monthly.sum())
+    annual_mean  = annual_total / 12
 
     wettest_idx  = int(monthly.idxmax())
     driest_idx   = int(monthly.idxmin())
-    monsoon_total = monthly[[6, 7, 8, 9]].sum()
+    monsoon_total = float(monthly[[6, 7, 8, 9]].sum())
+
+    return {
+        "annual_total_mm":  annual_total,
+        "annual_mean_mm":   annual_mean,
+        "wettest_month":    wettest_idx,
+        "wettest_month_mm": float(monthly[wettest_idx]),
+        "driest_month":     driest_idx,
+        "driest_month_mm":  float(monthly[driest_idx]),
+        "monsoon_total_mm": monsoon_total,
+    }
+
+
+def _render_monthly_rainfall(df: pd.DataFrame, year: int) -> None:
+    fig = build_monthly_rainfall_figure(df, year)
+    st.plotly_chart(fig, use_container_width=True)
+
+    stats = compute_monthly_rainfall_stats(df)
 
     c1, c2, c5 = st.columns(3)
-    with c1: st.markdown(_card("Annual Total", f"{annual_total:.1f} mm", "Full year", "#1d4ed8"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Wettest Month", f"{monthly[wettest_idx]:.1f} mm", _MONTH_LABELS[wettest_idx - 1], "#1e3a5f"), unsafe_allow_html=True)
-    # with c3: st.markdown(_card("Driest Month", f"{monthly[driest_idx]:.1f} mm", _MONTH_LABELS[driest_idx - 1], "#93c5fd"), unsafe_allow_html=True)
-    # with c4: st.markdown(_card("Monsoon Jun–Sep", f"{monsoon_total:.1f} mm", "Jun, Jul, Aug, Sep", "#3b82f6"), unsafe_allow_html=True)
-    with c5: st.markdown(_card("Mean Monthly", f"{annual_mean:.1f} mm", "Annual ÷ 12", "#0891b2"), unsafe_allow_html=True)
+    with c1: st.markdown(_card("Annual Total", f"{stats['annual_total_mm']:.1f} mm", "Full year", "#1d4ed8"), unsafe_allow_html=True)
+    with c2: st.markdown(_card("Wettest Month", f"{stats['wettest_month_mm']:.1f} mm", _MONTH_LABELS[stats['wettest_month'] - 1], "#1e3a5f"), unsafe_allow_html=True)
+    # with c3: st.markdown(_card("Driest Month", f"{stats['driest_month_mm']:.1f} mm", _MONTH_LABELS[stats['driest_month'] - 1], "#93c5fd"), unsafe_allow_html=True)
+    # with c4: st.markdown(_card("Monsoon Jun–Sep", f"{stats['monsoon_total_mm']:.1f} mm", "Jun, Jul, Aug, Sep", "#3b82f6"), unsafe_allow_html=True)
+    with c5: st.markdown(_card("Mean Monthly", f"{stats['annual_mean_mm']:.1f} mm", "Annual ÷ 12", "#0891b2"), unsafe_allow_html=True)
 
 
-def _render_rainy_days(df: pd.DataFrame, year: int,
-                        heavy_rain_threshold: float) -> None:
+def build_rainy_days_figure(df: pd.DataFrame, year: int,
+                            heavy_rain_threshold: float) -> go.Figure:
+    """Pure builder: stacked rainy-days-by-intensity bar chart (no Streamlit calls)."""
     rainy = df[df["prcp_mm"] > 0].copy()
 
     def _count(mask_fn):
@@ -346,8 +354,13 @@ def _render_rainy_days(df: pd.DataFrame, year: int,
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
+
+def compute_rainy_days_stats(df: pd.DataFrame,
+                             heavy_rain_threshold: float) -> dict:
+    """Pure KPI numbers for the Rainy Days tab."""
+    rainy = df[df["prcp_mm"] > 0].copy()
     total_rainy   = int(rainy.shape[0])
     extreme_count = int((rainy["prcp_mm"] >= heavy_rain_threshold).sum())
 
@@ -378,12 +391,93 @@ def _render_rainy_days(df: pd.DataFrame, year: int,
         if dry_best_start and dry_best_end else "N/A"
     )
 
+    return {
+        "total_rainy_days":    total_rainy,
+        "extreme_days":        extreme_count,
+        "max_consecutive_dry": max_dry,
+        "max_consecutive_wet": max_wet,
+        "longest_dry_spell":   longest_dry_str,
+    }
+
+
+def _render_rainy_days(df: pd.DataFrame, year: int,
+                        heavy_rain_threshold: float) -> None:
+    fig = build_rainy_days_figure(df, year, heavy_rain_threshold)
+    st.plotly_chart(fig, use_container_width=True)
+
+    stats = compute_rainy_days_stats(df, heavy_rain_threshold)
+
     c1, c2 = st.columns(2)
-    with c1: st.markdown(_card("Total Rainy Days", str(total_rainy), "Days with prcp > 0", "#3b82f6"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Extreme Rain Days", str(extreme_count), f"≥ {heavy_rain_threshold:.0f} mm/day", "#ef4444"), unsafe_allow_html=True)
-    # with c3: st.markdown(_card("Max Consec. Dry", str(max_dry), "days", "#f59e0b"), unsafe_allow_html=True)
-    # with c4: st.markdown(_card("Max Consec. Wet", str(max_wet), "days", "#0891b2"), unsafe_allow_html=True)
-    # with c5: st.markdown(_card("Longest Dry Spell", longest_dry_str, f"{max_dry} days", "#8b5cf6"), unsafe_allow_html=True)
+    with c1: st.markdown(_card("Total Rainy Days", str(stats["total_rainy_days"]), "Days with prcp > 0", "#3b82f6"), unsafe_allow_html=True)
+    with c2: st.markdown(_card("Extreme Rain Days", str(stats["extreme_days"]), f"≥ {heavy_rain_threshold:.0f} mm/day", "#ef4444"), unsafe_allow_html=True)
+    # with c3: st.markdown(_card("Max Consec. Dry", str(stats["max_consecutive_dry"]), "days", "#f59e0b"), unsafe_allow_html=True)
+    # with c4: st.markdown(_card("Max Consec. Wet", str(stats["max_consecutive_wet"]), "days", "#0891b2"), unsafe_allow_html=True)
+    # with c5: st.markdown(_card("Longest Dry Spell", stats["longest_dry_spell"], f"{stats['max_consecutive_dry']} days", "#8b5cf6"), unsafe_allow_html=True)
+
+
+def build_roof_runoff_figure(df: pd.DataFrame, year: int,
+                             roof_area_m2: float = 0.0,
+                             paved_area_m2: float = 0.0,
+                             green_area_m2: float = 0.0,
+                             water_area_m2: float = 0.0) -> go.Figure:
+    """Pure builder: stacked monthly surface-runoff bar chart (no Streamlit calls)."""
+    areas = {"roof": roof_area_m2, "paved": paved_area_m2,
+             "green": green_area_m2, "water": water_area_m2}
+
+    monthly_prcp = df.groupby("month")["prcp_mm"].sum().reindex(range(1, 13), fill_value=0)
+
+    fig = go.Figure()
+    for surf in _RUNOFF_SURFACES:
+        monthly_vol = (monthly_prcp / 1000.0) * areas[surf["key"]] * surf["rc"]
+        fig.add_trace(go.Bar(
+            x=_MONTH_LABELS,
+            y=monthly_vol.values,
+            name=surf["label"],
+            marker_color=surf["color"],
+            hovertemplate=f"<b>%{{x}}</b><br>{surf['label']}: %{{y:.3f}} m³<extra></extra>",
+        ))
+
+    fig.update_layout(
+        barmode="stack",
+        title=f"Monthly Surface Runoff by Type – {year}",
+        xaxis_title="Month",
+        yaxis_title="Runoff Volume (m³)",
+        height=450,
+        template="plotly_white",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="right", x=1),
+    )
+    return fig
+
+
+def compute_roof_runoff_stats(df: pd.DataFrame,
+                              roof_area_m2: float = 0.0,
+                              paved_area_m2: float = 0.0,
+                              green_area_m2: float = 0.0,
+                              water_area_m2: float = 0.0) -> dict:
+    """Pure KPI numbers for the Runoff tab (volumes in m³)."""
+    areas = {"roof": roof_area_m2, "paved": paved_area_m2,
+             "green": green_area_m2, "water": water_area_m2}
+
+    monthly_prcp = df.groupby("month")["prcp_mm"].sum().reindex(range(1, 13), fill_value=0)
+
+    surf_df = pd.DataFrame(
+        {surf["key"]: (monthly_prcp / 1000.0) * areas[surf["key"]] * surf["rc"]
+         for surf in _RUNOFF_SURFACES}
+    )
+    total_monthly = surf_df.sum(axis=1)
+    total_annual  = float(total_monthly.sum())
+    peak_month    = int(total_monthly.idxmax()) if total_annual > 0 else 1
+
+    return {
+        "total_annual_m3": total_annual,
+        "peak_month":      peak_month,
+        "peak_month_m3":   float(total_monthly[peak_month]),
+        "annual_by_surface_m3": {
+            surf["key"]: float(surf_df[surf["key"]].sum())
+            for surf in _RUNOFF_SURFACES
+        },
+    }
 
 
 @st.fragment
@@ -403,41 +497,26 @@ def _render_roof_runoff(df: pd.DataFrame, year: int,
                 key=f"runoff_area_{surf['key']}",
             )
 
-    monthly_prcp = df.groupby("month")["prcp_mm"].sum().reindex(range(1, 13), fill_value=0)
-
     # ── Stacked runoff chart ───────────────────────────────────────────────────
-    fig = go.Figure()
-    monthly_per_surf = {}
-    for surf in _RUNOFF_SURFACES:
-        monthly_vol = (monthly_prcp / 1000.0) * areas[surf["key"]] * surf["rc"]
-        monthly_per_surf[surf["key"]] = monthly_vol
-        fig.add_trace(go.Bar(
-            x=_MONTH_LABELS,
-            y=monthly_vol.values,
-            name=surf["label"],
-            marker_color=surf["color"],
-            hovertemplate=f"<b>%{{x}}</b><br>{surf['label']}: %{{y:.3f}} m³<extra></extra>",
-        ))
-
-    fig.update_layout(
-        barmode="stack",
-        title=f"Monthly Surface Runoff by Type – {year}",
-        xaxis_title="Month",
-        yaxis_title="Runoff Volume (m³)",
-        height=450,
-        template="plotly_white",
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="right", x=1),
+    fig = build_roof_runoff_figure(
+        df, year,
+        roof_area_m2=areas["roof"],
+        paved_area_m2=areas["paved"],
+        green_area_m2=areas["green"],
+        water_area_m2=areas["water"],
     )
     st.plotly_chart(fig, use_container_width=True)
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
-    surf_df = pd.DataFrame(
-        {surf["key"]: monthly_per_surf[surf["key"]] for surf in _RUNOFF_SURFACES}
+    stats = compute_roof_runoff_stats(
+        df,
+        roof_area_m2=areas["roof"],
+        paved_area_m2=areas["paved"],
+        green_area_m2=areas["green"],
+        water_area_m2=areas["water"],
     )
-    total_monthly = surf_df.sum(axis=1)
-    total_annual  = float(total_monthly.sum())
-    peak_month    = int(total_monthly.idxmax()) if total_annual > 0 else 1
+    total_annual = stats["total_annual_m3"]
+    peak_month   = stats["peak_month"]
 
     ca, cb = st.columns(2)
     with ca:
@@ -447,7 +526,7 @@ def _render_roof_runoff(df: pd.DataFrame, year: int,
         )
     with cb:
         st.markdown(
-            _card("Peak Runoff Month", _fmt_vol(float(total_monthly[peak_month]) * 1000),
+            _card("Peak Runoff Month", _fmt_vol(stats["peak_month_m3"] * 1000),
                   _MONTH_LABELS[peak_month - 1], "#ef4444"),
             unsafe_allow_html=True,
         )
@@ -458,7 +537,7 @@ def _render_roof_runoff(df: pd.DataFrame, year: int,
     cs1, cs2, cs3, cs4 = st.columns(4)
     for i, (surf, col) in enumerate(zip(_RUNOFF_SURFACES, [cs1, cs2, cs3, cs4])):
         with col:
-            annual_vol = float(surf_df[surf["key"]].sum())
+            annual_vol = stats["annual_by_surface_m3"][surf["key"]]
             st.markdown(
                 _card(short_labels[i], _fmt_vol(annual_vol * 1000), f"RC = {surf['rc']:.2f}", surf["color"]),
                 unsafe_allow_html=True,
@@ -765,56 +844,19 @@ def _render_roof_runoff(df: pd.DataFrame, year: int,
 
 # ── GI Balance tab ───────────────────────────────────────────────────────────
 
-@st.fragment
-def _render_gi_balance_tab(station_id: str, year: int) -> None:
-    c1, c2, _ = st.columns([1, 1, 2])
-    with c1:
-        percentile = st.selectbox(
-            "Baseline Percentile",
-            options=PERCENTILE_OPTIONS,
-            index=2,
-            key="balance_percentile",
-            format_func=lambda x: f"{x}th percentile",
-        )
-    with c2:
-        start_year = st.number_input(
-            "Historical data from year",
-            value=1990, min_value=1950, max_value=2020,
-            step=1, key="balance_start_year",
-        )
-
-    result = _fetch_percentile_depth(station_id, percentile, start_year)
-    if "error" in result:
-        st.error(f"Could not fetch baseline depth: {result['error']}")
-        return
-
-    baseline_mm = result["raw_mm"]
-    st.info(
-        f"{result['percentile']}th-percentile daily depth "
-        f"({result['start_date']} – {result['end_date']}, "
-        f"n={result['sample_size']} rain-days): "
-        f"**{baseline_mm:.2f} mm = {baseline_mm:.2f} L/m²** — used as GI capacity baseline"
-    )
-
-    # Full-year data (cached, no extra cost)
-    full_df = _fetch_noaa(station_id, year)
-    if full_df.empty:
-        st.warning("No rainfall data available for this station/year.")
-        return
-
-    daily = full_df.sort_values("date").copy()
+def build_gi_balance_figure(df: pd.DataFrame, year: int,
+                            baseline_mm: float,
+                            percentile: int = 95) -> go.Figure:
+    """Pure builder: monthly stored-vs-overflow harvesting chart (no Streamlit,
+    no network — pass ``baseline_mm`` from :func:`_fetch_percentile_depth`)."""
+    daily = df.sort_values("date").copy()
     daily["stored"]   = daily["prcp_mm"].clip(upper=baseline_mm)
     daily["overflow"] = (daily["prcp_mm"] - baseline_mm).clip(lower=0)
 
-    # Monthly aggregation
     monthly_grp = daily.groupby("month").agg(
         stored=("stored",   "sum"),
         overflow=("overflow", "sum"),
     ).reindex(range(1, 13), fill_value=0)
-
-    # Per-day overflow flag still needed for KPI cards
-    overflow_mask = daily["overflow"] > 0
-    overflow_days = daily[overflow_mask]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -863,18 +905,85 @@ def _render_gi_balance_tab(station_id: str, year: int) -> None:
         bargap=0.25,
         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="right", x=1),
     )
+    return fig
+
+
+def compute_gi_balance_stats(df: pd.DataFrame, baseline_mm: float) -> dict:
+    """Pure KPI numbers for the Storage Potential (GI balance) tab (L/m²)."""
+    daily = df.sort_values("date").copy()
+    daily["stored"]   = daily["prcp_mm"].clip(upper=baseline_mm)
+    daily["overflow"] = (daily["prcp_mm"] - baseline_mm).clip(lower=0)
+
+    monthly_grp = daily.groupby("month").agg(
+        stored=("stored",   "sum"),
+        overflow=("overflow", "sum"),
+    ).reindex(range(1, 13), fill_value=0)
+
+    overflow_days = daily[daily["overflow"] > 0]
+
+    if not overflow_days.empty:
+        worst_month = int(monthly_grp["overflow"].idxmax())
+        worst_month_overflow = float(monthly_grp.loc[worst_month, "overflow"])
+    else:
+        worst_month = None
+        worst_month_overflow = 0.0
+
+    return {
+        "total_storage_l_m2":        float(daily["stored"].sum()),
+        "total_overflow_l_m2":       float(daily["overflow"].sum()),
+        "overflow_days":             int(len(overflow_days)),
+        "worst_month":               worst_month,
+        "worst_month_overflow_l_m2": worst_month_overflow,
+    }
+
+
+@st.fragment
+def _render_gi_balance_tab(station_id: str, year: int) -> None:
+    c1, c2, _ = st.columns([1, 1, 2])
+    with c1:
+        percentile = st.selectbox(
+            "Baseline Percentile",
+            options=PERCENTILE_OPTIONS,
+            index=2,
+            key="balance_percentile",
+            format_func=lambda x: f"{x}th percentile",
+        )
+    with c2:
+        start_year = st.number_input(
+            "Historical data from year",
+            value=1990, min_value=1950, max_value=2020,
+            step=1, key="balance_start_year",
+        )
+
+    result = _fetch_percentile_depth(station_id, percentile, start_year)
+    if "error" in result:
+        st.error(f"Could not fetch baseline depth: {result['error']}")
+        return
+
+    baseline_mm = result["raw_mm"]
+    st.info(
+        f"{result['percentile']}th-percentile daily depth "
+        f"({result['start_date']} – {result['end_date']}, "
+        f"n={result['sample_size']} rain-days): "
+        f"**{baseline_mm:.2f} mm = {baseline_mm:.2f} L/m²** — used as GI capacity baseline"
+    )
+
+    # Full-year data (cached, no extra cost)
+    full_df = _fetch_noaa(station_id, year)
+    if full_df.empty:
+        st.warning("No rainfall data available for this station/year.")
+        return
+
+    fig = build_gi_balance_figure(full_df, year, baseline_mm, percentile)
     st.plotly_chart(fig, use_container_width=True)
 
     # ── Summary metrics ────────────────────────────────────────────────────────
-    total_recharge = daily["stored"].sum()
+    stats = compute_gi_balance_stats(full_df, baseline_mm)
 
-    total_overflow = daily["overflow"].sum()
-
-    if not overflow_days.empty:
-        worst_month_idx = int(monthly_grp["overflow"].idxmax())
+    if stats["worst_month"] is not None:
         worst_month_str = (
-            f"{_MONTH_LABELS[worst_month_idx - 1]} "
-            f"({monthly_grp.loc[worst_month_idx, 'overflow']:,.0f} L/m²)"
+            f"{_MONTH_LABELS[stats['worst_month'] - 1]} "
+            f"({stats['worst_month_overflow_l_m2']:,.0f} L/m²)"
         )
     else:
         worst_month_str = "None"
@@ -882,17 +991,17 @@ def _render_gi_balance_tab(station_id: str, year: int) -> None:
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(
-            _card("Storage Potential", f"{total_recharge:,.0f} L/m²", "Total captured by GI", "#22c55e"),
+            _card("Storage Potential", f"{stats['total_storage_l_m2']:,.0f} L/m²", "Total captured by GI", "#22c55e"),
             unsafe_allow_html=True,
         )
     with c2:
         st.markdown(
-            _card("Recharge Potential", f"{total_overflow:,.0f} L/m²", "Excess beyond GI capacity", "#ef4444"),
+            _card("Recharge Potential", f"{stats['total_overflow_l_m2']:,.0f} L/m²", "Excess beyond GI capacity", "#ef4444"),
             unsafe_allow_html=True,
         )
     with c3:
         st.markdown(
-            _card("Overflow Days", str(len(overflow_days)),
+            _card("Overflow Days", str(stats["overflow_days"]),
                   f"Days with rain > {baseline_mm:.1f} mm", "#f59e0b"),
             unsafe_allow_html=True,
         )

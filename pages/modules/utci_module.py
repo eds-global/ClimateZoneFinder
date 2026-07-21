@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
-import streamlit as st
+from .st_compat import st
 from pythermalcomfort.models import solar_gain, utci as pytc_utci
 
 from .config import (
@@ -224,7 +224,8 @@ def render(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _render_annual_trend(df, daily_stats, start_date, end_date):
+def build_annual_trend_figure(daily_stats: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """Annual UTCI vs dry bulb trend figure (pure — no Streamlit)."""
     start_month_num = start_date.month
     end_month_num   = end_date.month
 
@@ -303,7 +304,41 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
         template="plotly_white",
         margin=dict(b=80),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
+
+
+def compute_annual_trend_stats(df: pd.DataFrame, start_date, end_date) -> dict:
+    """KPI numbers for the annual trend cards (pure — no Streamlit)."""
+    max_row = df.loc[df["utci"].idxmax()]
+    min_row = df.loc[df["utci"].idxmin()]
+
+    # Filter by month number, not literal calendar date: EPW files are TMY
+    # composites where each month is sourced from a different real year, so
+    # comparing df["datetime"].dt.date against a synthetic single-year range
+    # would only match whichever months happen to share that arbitrary year.
+    month_filtered = df[df["month"].between(start_date.month, end_date.month)]
+    period = month_filtered if not month_filtered.empty else df
+
+    return {
+        "utci_max": float(max_row["utci"]),
+        "utci_max_datetime": max_row["datetime"],
+        "utci_max_hour": int(max_row["hour"]),
+        "utci_max_category": max_row["utci_stress_category"],
+        "utci_min": float(min_row["utci"]),
+        "utci_min_datetime": min_row["datetime"],
+        "utci_min_hour": int(min_row["hour"]),
+        "utci_min_category": min_row["utci_stress_category"],
+        "utci_avg": float(period["utci"].mean()),
+        "feels_like_diff": float(period["utci_feels_like_diff"].mean()),
+        "heat_stress_hours": int((df["utci"] >= 26).sum()),
+        "cold_stress_hours": int((df["utci"] < 9).sum()),
+        "extreme_stress_hours": int(((df["utci"] >= 46) | (df["utci"] < -27)).sum()),
+    }
+
+
+def _render_annual_trend(df, daily_stats, start_date, end_date):
+    st.plotly_chart(build_annual_trend_figure(daily_stats, start_date, end_date),
+                    use_container_width=True)
 
     if df.empty:
         st.info("No data available.")
@@ -313,21 +348,7 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
     _render_monthly_scatter(df)
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
-    max_row = df.loc[df["utci"].idxmax()]
-    min_row = df.loc[df["utci"].idxmin()]
-
-    # Filter by month number, not literal calendar date: EPW files are TMY
-    # composites where each month is sourced from a different real year, so
-    # comparing df["datetime"].dt.date against a synthetic single-year range
-    # would only match whichever months happen to share that arbitrary year.
-    month_filtered = df[df["month"].between(start_month_num, end_month_num)]
-    period = month_filtered if not month_filtered.empty else df
-
-    utci_avg   = period["utci"].mean()
-    feels_diff = period["utci_feels_like_diff"].mean()
-    heat_hrs   = int((df["utci"] >= 26).sum())
-    cold_hrs   = int((df["utci"] < 9).sum())
-    extreme_hrs = int(((df["utci"] >= 46) | (df["utci"] < -27)).sum())
+    stats = compute_annual_trend_stats(df, start_date, end_date)
 
     def _card(label, value, sub, color):
         return f"""
@@ -339,19 +360,19 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
 </div>"""
 
     c1, c2, c3, c4, c5,c6 = st.columns(6)
-    with c1: st.markdown(_card("Max UTCI", f"{max_row['utci']:.1f} °C",
-                                f"{max_row['datetime'].strftime('%b %d')} · {int(max_row['hour']):02d}:00 · {max_row['utci_stress_category']}",
+    with c1: st.markdown(_card("Max UTCI", f"{stats['utci_max']:.1f} °C",
+                                f"{stats['utci_max_datetime'].strftime('%b %d')} · {stats['utci_max_hour']:02d}:00 · {stats['utci_max_category']}",
                                 "#ef4444"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Min UTCI", f"{min_row['utci']:.1f} °C",
-                                f"{min_row['datetime'].strftime('%b %d')} · {int(min_row['hour']):02d}:00 · {min_row['utci_stress_category']}",
+    with c2: st.markdown(_card("Min UTCI", f"{stats['utci_min']:.1f} °C",
+                                f"{stats['utci_min_datetime'].strftime('%b %d')} · {stats['utci_min_hour']:02d}:00 · {stats['utci_min_category']}",
                                 "#3b82f6"), unsafe_allow_html=True)
-    with c3: st.markdown(_card("Avg UTCI (period)", f"{utci_avg:.1f} °C", "Selected date range", "#8b5cf6"), unsafe_allow_html=True)
-    # with c4: st.markdown(_card("Feels-Like Δ (period)", f"{feels_diff:+.1f} °C", "UTCI − Dry Bulb, avg", "#f59e0b"), unsafe_allow_html=True)
-    with c4: st.markdown(_card("Extreme Stress Hrs", f"{extreme_hrs}", "Annual, ≥46°C or <−27°C", "#7A1A22"), unsafe_allow_html=True)
+    with c3: st.markdown(_card("Avg UTCI (period)", f"{stats['utci_avg']:.1f} °C", "Selected date range", "#8b5cf6"), unsafe_allow_html=True)
+    # with c4: st.markdown(_card("Feels-Like Δ (period)", f"{stats['feels_like_diff']:+.1f} °C", "UTCI − Dry Bulb, avg", "#f59e0b"), unsafe_allow_html=True)
+    with c4: st.markdown(_card("Extreme Stress Hrs", f"{stats['extreme_stress_hours']}", "Annual, ≥46°C or <−27°C", "#7A1A22"), unsafe_allow_html=True)
 
     # c5, c6 = st.columns(2)
-    with c5: st.markdown(_card("Heat Stress Hours", f"{heat_hrs}", "Annual, UTCI ≥ 26°C", "#CE2029"), unsafe_allow_html=True)
-    with c6: st.markdown(_card("Cold Stress Hours", f"{cold_hrs}", "Annual, UTCI < 9°C", "#3288BD"), unsafe_allow_html=True)
+    with c5: st.markdown(_card("Heat Stress Hours", f"{stats['heat_stress_hours']}", "Annual, UTCI ≥ 26°C", "#CE2029"), unsafe_allow_html=True)
+    with c6: st.markdown(_card("Cold Stress Hours", f"{stats['cold_stress_hours']}", "Annual, UTCI < 9°C", "#3288BD"), unsafe_allow_html=True)
 
     st.caption(
         "MRT is estimated from EPW direct-normal irradiance and solar position "
@@ -361,7 +382,7 @@ def _render_annual_trend(df, daily_stats, start_date, end_date):
     )
 
 
-def _render_annual_scatter(df):
+def build_annual_scatter_figure(df: pd.DataFrame) -> go.Figure:
     """Every hour of the year, single panel, colored by UTCI stress category.
 
     EPW datetimes are a TMY composite (each month sourced from a different
@@ -403,10 +424,14 @@ def _render_annual_scatter(df):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(b=40),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_monthly_scatter(df):
+def _render_annual_scatter(df):
+    st.plotly_chart(build_annual_scatter_figure(df), use_container_width=True)
+
+
+def build_monthly_scatter_figure(df: pd.DataFrame) -> go.Figure:
     """Every hour of the year, faceted by month, colored by UTCI stress category.
 
     Mirrors the classic "daily chart" small-multiples layout (one panel per
@@ -470,12 +495,19 @@ def _render_monthly_scatter(df):
         margin=dict(t=120, b=40),
     )
     fig.update_yaxes(title_text="UTCI (°C)", row=1, col=1)
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
-def _render_stress_distribution(df, start_date, end_date):
-    # Month-based filter, not literal calendar date — see the comment in
-    # _render_annual_trend() for why date-range filtering breaks on TMY EPWs.
+def _render_monthly_scatter(df):
+    st.plotly_chart(build_monthly_scatter_figure(df), use_container_width=True)
+
+
+def _stress_period_pct(df: pd.DataFrame, start_date, end_date):
+    """Stress-category hour counts and % for the selected month range.
+
+    Month-based filter, not literal calendar date — see the comment in
+    compute_annual_trend_stats() for why date-range filtering breaks on TMY EPWs.
+    """
     start_month_num, end_month_num = start_date.month, end_date.month
     period = df[df["month"].between(start_month_num, end_month_num)]
     period = period if not period.empty else df
@@ -484,6 +516,12 @@ def _render_stress_distribution(df, start_date, end_date):
     order  = _stress_category_order(counts.index)
     counts = counts.reindex(order).fillna(0)
     pct    = counts / len(period) * 100
+    return counts, order, pct
+
+
+def build_stress_distribution_figure(df: pd.DataFrame, start_date, end_date) -> go.Figure:
+    """Stacked hours-per-stress-category bar for the selected period (pure)."""
+    counts, order, pct = _stress_period_pct(df, start_date, end_date)
 
     fig = go.Figure()
     for cat in order:
@@ -502,9 +540,11 @@ def _render_stress_distribution(df, start_date, end_date):
         legend=dict(orientation="h", yanchor="bottom", y=1.15, xanchor="center", x=0.5),
         margin=dict(l=40, t=90, b=40),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
-    # ── Monthly composition (100% stacked) ─────────────────────────────────────
+
+def build_stress_monthly_figure(df: pd.DataFrame) -> go.Figure:
+    """Monthly stress-category composition, 100% stacked bars (pure)."""
     monthly_pct = (
         df.assign(month_name=df["month"].apply(lambda m: _MONTH_SHORT[m - 1]))
         .groupby(["month", "month_name", "utci_stress_category"])
@@ -531,12 +571,26 @@ def _render_stress_distribution(df, start_date, end_date):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     fig2.update_xaxes(categoryorder="array", categoryarray=_MONTH_SHORT)
-    st.plotly_chart(fig2, use_container_width=True)
+    return fig2
+
+
+def compute_stress_distribution_stats(df: pd.DataFrame, start_date, end_date) -> dict:
+    """KPI numbers for the stress distribution cards (pure — no Streamlit)."""
+    _counts, _order, pct = _stress_period_pct(df, start_date, end_date)
+    return {
+        "no_stress_pct": float(pct.get("no thermal stress", 0.0)),
+        "heat_pct": float(sum(pct.get(c, 0.0) for c in UTCI_STRESS_LABELS[6:])),
+        "cold_pct": float(sum(pct.get(c, 0.0) for c in UTCI_STRESS_LABELS[:5])),
+    }
+
+
+def _render_stress_distribution(df, start_date, end_date):
+    st.plotly_chart(build_stress_distribution_figure(df, start_date, end_date),
+                    use_container_width=True)
+    st.plotly_chart(build_stress_monthly_figure(df), use_container_width=True)
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
-    no_stress_pct = pct.get("no thermal stress", 0.0)
-    heat_pct = sum(pct.get(c, 0.0) for c in UTCI_STRESS_LABELS[6:])
-    cold_pct = sum(pct.get(c, 0.0) for c in UTCI_STRESS_LABELS[:5])
+    stats = compute_stress_distribution_stats(df, start_date, end_date)
 
     def _card(label, value, sub, color):
         return f"""
@@ -548,6 +602,6 @@ def _render_stress_distribution(df, start_date, end_date):
 </div>"""
 
     c1, c2, c3 = st.columns(3)
-    with c1: st.markdown(_card("No Thermal Stress", f"{no_stress_pct:.1f} %", "Of selected period", "#74B761"), unsafe_allow_html=True)
-    with c2: st.markdown(_card("Heat Stress", f"{heat_pct:.1f} %", "Moderate or worse", "#E97A2E"), unsafe_allow_html=True)
-    with c3: st.markdown(_card("Cold Stress", f"{cold_pct:.1f} %", "Slight or worse", "#67BCD4"), unsafe_allow_html=True)
+    with c1: st.markdown(_card("No Thermal Stress", f"{stats['no_stress_pct']:.1f} %", "Of selected period", "#74B761"), unsafe_allow_html=True)
+    with c2: st.markdown(_card("Heat Stress", f"{stats['heat_pct']:.1f} %", "Moderate or worse", "#E97A2E"), unsafe_allow_html=True)
+    with c3: st.markdown(_card("Cold Stress", f"{stats['cold_pct']:.1f} %", "Slight or worse", "#67BCD4"), unsafe_allow_html=True)

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pvlib
-import streamlit as st
+from .st_compat import st
 from shapely.geometry import MultiPoint
 
 BRAND = "#a85c42"
@@ -397,6 +397,45 @@ def facade_wind_exposure(df: pd.DataFrame, rotation: float) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def build_wind_exposure_figure(wexp: pd.DataFrame) -> go.Figure:
+    """Facade wind-exposure bar chart from `facade_wind_exposure` output."""
+    fig = go.Figure(go.Bar(
+        x=wexp["Facade"], y=wexp["pct_hours"],
+        marker_color=["#4a90d9", "#8fbc45", "#e05c2a", "#9467bd"],
+        text=[f"{v:.0f}%" for v in wexp["pct_hours"]], textposition="outside",
+        customdata=wexp["mean_speed"],
+        hovertemplate="%{y:.1f}% of hours<br>mean %{customdata:.1f} m/s<extra></extra>",
+    ))
+    fig.update_layout(height=320, plot_bgcolor="white",
+                      yaxis_title="% of hours with useful wind (≥1 m/s, ±60°)",
+                      margin=dict(l=40, r=10, t=20, b=10))
+    return fig
+
+
+def compute_wind_exposure_stats(wexp: pd.DataFrame) -> dict:
+    """Best-facade wind KPIs from `facade_wind_exposure` output."""
+    best = wexp.loc[wexp["pct_hours"].idxmax()]
+    return {
+        "best_facade": best["Facade"],
+        "best_pct_hours": float(best["pct_hours"]),
+        "best_mean_speed": float(best["mean_speed"]),
+    }
+
+
+def compute_shadow_kpi_stats(sun_day: pd.DataFrame, height: float) -> dict:
+    """Design-day sun/shadow KPIs from `day_solar_positions` output."""
+    noon = sun_day.loc[sun_day["altitude"].idxmax()]
+    shadow_len = height / np.tan(np.radians(max(noon["altitude"], 1.0)))
+    return {
+        "sunrise": sun_day["time"].iloc[0],
+        "sunset": sun_day["time"].iloc[-1],
+        "max_altitude": float(noon["altitude"]),
+        "max_altitude_time": noon["time"],
+        "noon_shadow_length": float(shadow_len),
+        "daylight_hours": len(sun_day) * 20 / 60,
+    }
+
+
 # ── Streamlit render ──────────────────────────────────────────────────────────
 
 def render(df: pd.DataFrame, metadata: dict):
@@ -460,18 +499,17 @@ def render(df: pd.DataFrame, metadata: dict):
 
     # KPIs for the design day
     if not sun_day.empty:
-        noon = sun_day.loc[sun_day["altitude"].idxmax()]
-        shadow_len = height / np.tan(np.radians(max(noon["altitude"], 1.0)))
+        kpi = compute_shadow_kpi_stats(sun_day, height)
         k1, k2, k3, k4 = st.columns(4)
         for col, label, value, meta in [
-            (k1, "Sunrise → sunset", f"{sun_day['time'].iloc[0]:%H:%M} – "
-                                     f"{sun_day['time'].iloc[-1]:%H:%M}",
+            (k1, "Sunrise → sunset", f"{kpi['sunrise']:%H:%M} – "
+                                     f"{kpi['sunset']:%H:%M}",
              day_label),
-            (k2, "Max solar altitude", f"{noon['altitude']:.0f}°",
-             f"at {noon['time']:%H:%M}"),
-            (k3, "Noon shadow length", f"{shadow_len:.1f} m",
+            (k2, "Max solar altitude", f"{kpi['max_altitude']:.0f}°",
+             f"at {kpi['max_altitude_time']:%H:%M}"),
+            (k3, "Noon shadow length", f"{kpi['noon_shadow_length']:.1f} m",
              f"for {height:.0f} m height"),
-            (k4, "Daylight hours", f"{len(sun_day) * 20 / 60:.1f} h",
+            (k4, "Daylight hours", f"{kpi['daylight_hours']:.1f} h",
              "sun above horizon"),
         ]:
             with col:
@@ -516,21 +554,13 @@ def render(df: pd.DataFrame, metadata: dict):
     st.markdown('<div class="section-title">Wind exposure by facade</div>',
                 unsafe_allow_html=True)
     wexp = facade_wind_exposure(df, float(rotation))
-    fig = go.Figure(go.Bar(
-        x=wexp["Facade"], y=wexp["pct_hours"],
-        marker_color=["#4a90d9", "#8fbc45", "#e05c2a", "#9467bd"],
-        text=[f"{v:.0f}%" for v in wexp["pct_hours"]], textposition="outside",
-        customdata=wexp["mean_speed"],
-        hovertemplate="%{y:.1f}% of hours<br>mean %{customdata:.1f} m/s<extra></extra>",
-    ))
-    fig.update_layout(height=320, plot_bgcolor="white",
-                      yaxis_title="% of hours with useful wind (≥1 m/s, ±60°)",
-                      margin=dict(l=40, r=10, t=20, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="site_wind")
-    best = wexp.loc[wexp["pct_hours"].idxmax()]
+    st.plotly_chart(build_wind_exposure_figure(wexp),
+                    use_container_width=True, key="site_wind")
+    wind_stats = compute_wind_exposure_stats(wexp)
     st.caption(
-        f"**{best['Facade']}** catches useful wind {best['pct_hours']:.0f}% of "
-        f"the year (mean {best['mean_speed']:.1f} m/s) — locate operable "
+        f"**{wind_stats['best_facade']}** catches useful wind "
+        f"{wind_stats['best_pct_hours']:.0f}% of "
+        f"the year (mean {wind_stats['best_mean_speed']:.1f} m/s) — locate operable "
         "openings there and provide a cross-ventilation outlet on the "
         "opposite face."
     )

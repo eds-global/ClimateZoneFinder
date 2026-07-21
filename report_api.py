@@ -14,6 +14,7 @@ from datetime import datetime
 from functools import partial
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from cachetools import TTLCache
 
 from pages.modules.epw_parser import parse_epw
@@ -118,18 +119,28 @@ def _stream_response(buffer: io.BytesIO, filename: str, output_format: str) -> S
     )
 
 app = FastAPI(
-    title="Climate Zone Finder - PPT Report API",
-    description="REST API for generating PowerPoint climate analysis reports from EPW files",
-    version="1.0.0"
+    title="Climate Zone Finder - Climate Analysis API",
+    description="REST API for climate analysis charts (Plotly JSON) and PowerPoint reports from EPW files",
+    version="1.1.0"
 )
 
+# Note: allow_credentials must be False with a wildcard origin — browsers
+# reject the "*" + credentials combination, and no endpoint uses cookies.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins for production
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Chart JSON responses compress ~10x; PPTX streams are already zip-compressed
+# and skip gzip via their content type.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+from chart_api import router as chart_router  # noqa: E402  (needs app deps loaded)
+
+app.include_router(chart_router)
 
 def _parse_epw_bytes(file_content: bytes) -> tuple[pd.DataFrame, dict]:
     """Thin wrapper: decode bytes and delegate to the shared parse_epw()."""

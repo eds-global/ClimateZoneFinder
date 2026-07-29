@@ -248,6 +248,7 @@ def build_shading_mask_figure(geom: dict, facade_az: float,
     fig.update_layout(
         height=520,
         polar=dict(
+            bgcolor="rgba(0,0,0,0)",
             radialaxis=dict(range=[0, 90], tickvals=[0, 30, 60, 90],
                             ticktext=["90°", "60°", "30°", "0°"],
                             tickfont=dict(size=9)),
@@ -259,6 +260,7 @@ def build_shading_mask_figure(geom: dict, facade_az: float,
         margin=dict(l=40, r=40, t=40, b=20),
         title=dict(text="Shading mask — darker sky = window protected",
                    font=dict(size=15, color="#2c3e50")),
+        paper_bgcolor="rgba(0,0,0,0)",
     )
     return fig
 

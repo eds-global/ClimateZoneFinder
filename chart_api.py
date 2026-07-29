@@ -122,8 +122,10 @@ def _chart(chart_id: str, title: str, fig) -> dict:
     return {"id": chart_id, "title": title, "figure": _fig_json(fig)}
 
 
-def _response(module: str, charts: list[dict], stats: dict) -> dict:
-    return {"module": module, "charts": charts, "stats": _clean(stats)}
+def _response(module: str, charts: list[dict], stats: dict,
+              location: Optional[dict] = None) -> dict:
+    return {"module": module, "charts": charts, "stats": _clean(stats),
+            "location": location}
 
 
 async def _run(worker, *args) -> dict:
@@ -577,7 +579,8 @@ def _sun_path_3d_worker(df: pd.DataFrame, metadata: dict, color_by: str,
         _chart("stereographic", "2D Stereographic Sun Path",
                sun_path_3d.build_stereographic_figure(geom, points, color_by)),
     ]
-    return _response("sun-path-3d", charts, stats)
+    location = {"lat": float(lat), "lon": float(lon)}
+    return _response("sun-path-3d", charts, stats, location)
 
 
 @router.post("/sun-path-3d")
@@ -718,7 +721,8 @@ def _shading_worker(df: pd.DataFrame, metadata: dict, geom: dict,
         _chart("monthly_block", "Monthly Beam: Blocked vs Admitted",
                m.build_monthly_block_figure(perf)),
     ]
-    return _response("shading-designer", charts, stats)
+    location = {"lat": lat, "lon": lon}
+    return _response("shading-designer", charts, stats, location)
 
 
 @router.post("/shading-designer")
@@ -1094,7 +1098,8 @@ def _sun_path_worker(df: pd.DataFrame, metadata: dict, temp_threshold: float,
         "sun_positions": orient["sun_positions"],
         "orientation_table": orient["orientation_table"],
     }
-    return _response("sun-path", charts, stats)
+    location = {"lat": float(lat), "lon": float(lon)}
+    return _response("sun-path", charts, stats, location)
 
 
 @router.post("/sun-path")

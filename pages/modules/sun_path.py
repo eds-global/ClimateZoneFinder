@@ -517,8 +517,8 @@ def build_sun_path_figure(
         hovermode="closest",
         height=700,
         margin=dict(l=80, r=140, t=100, b=80),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Arial, sans-serif", size=12, color="black"),
     )
 

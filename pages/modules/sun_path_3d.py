@@ -818,8 +818,8 @@ def build_stereographic_figure(
         yaxis=dict(visible=False, range=[-1.30, 1.30]),
         height=700,
         margin=dict(l=10, r=10, t=30, b=10),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(
             orientation="h", x=0.5, xanchor="center",
             y=-0.06, yanchor="top", font=dict(size=10),

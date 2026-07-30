@@ -516,7 +516,13 @@ def build_sun_path_figure(
         ),
         hovermode="closest",
         height=700,
-        margin=dict(l=80, r=140, t=100, b=80),
+        # Symmetric margins matter here: the map overlay centers a Google Map
+        # on the container's geometric center, so the polar circle's center
+        # (which Plotly places at the margin-adjusted plot-area center, not
+        # the container center) has to coincide with it. Grow the smaller
+        # side to match the larger rather than shrinking either, so the
+        # zenith-label text on the right keeps its room.
+        margin=dict(l=140, r=140, t=100, b=100),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Arial, sans-serif", size=12, color="black"),

@@ -817,7 +817,10 @@ def build_stereographic_figure(
                    scaleanchor="y", scaleratio=1),
         yaxis=dict(visible=False, range=[-1.30, 1.30]),
         height=700,
-        margin=dict(l=10, r=10, t=30, b=10),
+        # Symmetric top/bottom margin so the circle's center lines up with
+        # the Google Map overlay's center (see build_sun_path_figure for the
+        # full explanation).
+        margin=dict(l=10, r=10, t=30, b=30),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(

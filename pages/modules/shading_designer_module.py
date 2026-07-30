@@ -257,7 +257,10 @@ def build_shading_mask_figure(geom: dict, facade_az: float,
                              ticktext=["N", "NE", "E", "SE", "S", "SW", "W", "NW"]),
         ),
         legend=dict(orientation="h", y=-0.08),
-        margin=dict(l=40, r=40, t=40, b=20),
+        # Symmetric top/bottom margin so the circle's center lines up with
+        # the Google Map overlay's center (see build_sun_path_figure for the
+        # full explanation).
+        margin=dict(l=40, r=40, t=40, b=40),
         title=dict(text="Shading mask — darker sky = window protected",
                    font=dict(size=15, color="#2c3e50")),
         paper_bgcolor="rgba(0,0,0,0)",
